@@ -79,7 +79,7 @@ async def test_user_flow_offers_both_sign_in_methods(hass: HomeAssistant) -> Non
 
     assert result["type"] is data_entry_flow.FlowResultType.MENU
     assert result["step_id"] == "user"
-    assert result["menu_options"] == ("credentials", "browser_start")
+    assert result["menu_options"] == ("credentials", "browser_start", "migrate")
 
 
 async def test_user_flow_can_select_sms(

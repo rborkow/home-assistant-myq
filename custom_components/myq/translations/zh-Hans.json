@@ -6,7 +6,8 @@
         "description": "建议使用自动登录。如果 MyQ 阻止了自动登录流程，也可以通过浏览器登录。",
         "menu_options": {
           "credentials": "自动登录",
-          "browser_start": "通过浏览器登录"
+          "browser_start": "通过浏览器登录",
+          "migrate": "Transfer an existing authorization"
         }
       },
       "credentials": {
@@ -61,6 +62,15 @@
         "data": {
           "callback_url": "回调地址"
         }
+      },
+      "migrate": {
+        "title": "Transfer an existing authorization",
+        "description": "Advanced migration: stop the client that owns this refresh token before transferring it. Home Assistant will validate and take over the authorization. Do not reuse this token in another client. Normal browser sign-in remains available for reauthentication.",
+        "data": {
+          "email": "Account email",
+          "refresh_token": "Refresh token",
+          "previous_client_stopped": "The previous owner of this token has been stopped"
+        }
       }
     },
     "error": {
@@ -71,7 +81,9 @@
       "invalid_auth": "电子邮箱地址或密码不正确。",
       "invalid_callback": "回调地址无效，或属于另一次登录尝试。",
       "invalid_mfa": "验证码无效或已过期。",
-      "unknown": "MyQ 发生意外错误。请查看日志了解详情。"
+      "unknown": "MyQ 发生意外错误。请查看日志了解详情。",
+      "migration_owner_active": "Stop the previous token owner before transferring authorization.",
+      "migration_failed": "Could not validate this authorization. Use browser sign-in or a fresh token from the stopped client."
     },
     "abort": {
       "already_configured": "该 MyQ 账户已配置，无需重复设置。",

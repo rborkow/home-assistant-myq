@@ -6,7 +6,8 @@
         "description": "Automatisk login anbefales. Hvis MyQ blokerer det automatiske forløb, kan du også logge ind med en browser.",
         "menu_options": {
           "credentials": "Log ind automatisk",
-          "browser_start": "Log ind med en browser"
+          "browser_start": "Log ind med en browser",
+          "migrate": "Transfer an existing authorization"
         }
       },
       "credentials": {
@@ -61,6 +62,15 @@
         "data": {
           "callback_url": "Tilbagekaldsadresse"
         }
+      },
+      "migrate": {
+        "title": "Transfer an existing authorization",
+        "description": "Advanced migration: stop the client that owns this refresh token before transferring it. Home Assistant will validate and take over the authorization. Do not reuse this token in another client. Normal browser sign-in remains available for reauthentication.",
+        "data": {
+          "email": "Account email",
+          "refresh_token": "Refresh token",
+          "previous_client_stopped": "The previous owner of this token has been stopped"
+        }
       }
     },
     "error": {
@@ -71,7 +81,9 @@
       "invalid_auth": "E-mailadressen eller adgangskoden er forkert.",
       "invalid_callback": "Tilbagekaldsadressen er ugyldig eller hører til et andet loginforsøg.",
       "invalid_mfa": "Bekræftelseskoden er ugyldig eller udløbet.",
-      "unknown": "Uventet MyQ-fejl. Se logfilerne for detaljer."
+      "unknown": "Uventet MyQ-fejl. Se logfilerne for detaljer.",
+      "migration_owner_active": "Stop the previous token owner before transferring authorization.",
+      "migration_failed": "Could not validate this authorization. Use browser sign-in or a fresh token from the stopped client."
     },
     "abort": {
       "already_configured": "Denne MyQ-konto er allerede konfigureret. Yderligere opsætning er ikke nødvendig.",

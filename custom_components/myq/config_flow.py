@@ -21,7 +21,9 @@ from .config_flow_forms import (
     BROWSER_CALLBACK_SCHEMA,
     BROWSER_START_SCHEMA,
     CREDENTIALS_SCHEMA,
+    EMAIL_SELECTOR,
     MFA_SCHEMA,
+    PASSWORD_SELECTOR,
     REAUTH_MENU_OPTIONS,
     REAUTH_SCHEMA,
     USER_MENU_OPTIONS,
@@ -79,7 +81,44 @@ class MyQConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         del user_input
         return self.async_show_menu(
             step_id="user",
-            menu_options=USER_MENU_OPTIONS,
+            menu_options=(*USER_MENU_OPTIONS, "migrate"),
+        )
+
+    async def async_step_migrate(
+        self,
+        user_input: dict[str, object] | None = None,
+    ) -> ConfigFlowResult:
+        """Transfer an existing authorization after its former owner is stopped."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if user_input.get("previous_client_stopped") is not True:
+                errors["base"] = "migration_owner_active"
+            else:
+                self._email = str(user_input[CONF_EMAIL]).strip().casefold()
+                self._mfa_method = DEFAULT_MFA_METHOD
+                self._async_abort_entries_match({CONF_EMAIL: self._email})
+                refresh = str(user_input["refresh_token"]).strip()
+                auth = MyQAuth(
+                    async_get_clientsession(self.hass),
+                    OAuthTokens("", refresh, 0),
+                    lambda _: None,
+                )
+                try:
+                    tokens = await auth.async_refresh()
+                except MyQError, ClientError, TimeoutError:
+                    errors["base"] = "migration_failed"
+                else:
+                    return await self._async_finish(tokens)
+        return self.async_show_form(
+            step_id="migrate",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_EMAIL): EMAIL_SELECTOR,
+                    vol.Required("refresh_token"): PASSWORD_SELECTOR,
+                    vol.Required("previous_client_stopped", default=False): bool,
+                }
+            ),
+            errors=errors,
         )
 
     async def async_step_credentials(
