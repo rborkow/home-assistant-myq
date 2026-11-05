@@ -76,6 +76,12 @@ Subsequent live HA validation:
 - A temporary HA automation received both actual `completed` and `cancelled`
   recording events and emitted the expected test events. Cancellation was triggered
   by integration reload. The test automation was deleted successfully afterward.
+- A targeted live socket-interruption attempt verified that the selected media
+  socket belonged to HA. The host's socket-close tool exited successfully but
+  left that connection established (one selected before and after, zero reported
+  closed). The ten-second recording completed, but this is **not** evidence of
+  live network-failure recovery. Further attempts were stopped to avoid needless
+  camera activity. Offline disconnect recovery is verified separately above.
 
 The fresh browser flow reached myQ's sign-in page but was deferred because the
 user was away. Migration success does not prove end-to-end browser onboarding.
