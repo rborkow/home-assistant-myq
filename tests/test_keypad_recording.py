@@ -1,0 +1,98 @@
+"""Recording safety and cancellation; no real camera or door commands."""
+
+import asyncio
+import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import cast
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from custom_components.myq.keypad_recording import _reserve, record_keypad
+from custom_components.myq.tend_protocol import TendStreamError
+from custom_components.myq.tend_stream import TendLiveStream
+
+
+def test_low_disk_space_refuses_recording_without_partial_file(tmp_path: Path) -> None:
+    path = tmp_path / "test.partial.mp4"
+    with patch("custom_components.myq.keypad_recording.shutil.disk_usage") as usage:
+        usage.return_value.free = 10
+        with pytest.raises(TendStreamError):
+            _reserve(tmp_path, path)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("duration", [0, 4, 301, True])
+async def test_invalid_duration_does_not_start_camera(tmp_path: Path, duration: int) -> None:
+    stream = MagicMock(spec=TendLiveStream)
+    with pytest.raises(ValueError):
+        await record_keypad(stream, duration, tmp_path, "ffmpeg")
+    stream.frames.assert_not_called()
+    assert not await asyncio.to_thread(lambda: list(tmp_path.iterdir()))
+
+
+async def test_cancellation_during_reservation_waits_for_worker_then_cleans(
+    tmp_path: Path,
+) -> None:
+    started = asyncio.Event()
+    finish = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    def reserve(directory: Path, partial: Path) -> None:
+        loop.call_soon_threadsafe(started.set)
+        assert finish.wait(2)
+        partial.touch()
+
+    stream = MagicMock(spec=TendLiveStream)
+    with patch("custom_components.myq.keypad_recording._reserve", side_effect=reserve):
+        task = asyncio.create_task(record_keypad(stream, 5, tmp_path, "ffmpeg"))
+        try:
+            await asyncio.wait_for(started.wait(), 2)
+            task.cancel()
+        finally:
+            finish.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    stream.frames.assert_not_called()
+    assert not await asyncio.to_thread(lambda: list(tmp_path.iterdir()))
+
+
+async def test_cancelled_recording_releases_lease_kills_encoder_and_cleans_file(
+    tmp_path: Path,
+) -> None:
+    leased = asyncio.Event()
+    released = asyncio.Event()
+
+    @asynccontextmanager
+    async def frames() -> AsyncIterator[asyncio.Queue[bytes]]:
+        leased.set()
+        try:
+            yield asyncio.Queue()
+        finally:
+            released.set()
+
+    stream = MagicMock(spec=TendLiveStream)
+    stream.frames.side_effect = frames
+    encoder = MagicMock(returncode=None, wait=AsyncMock())
+    encoder.kill.side_effect = lambda: setattr(encoder, "returncode", -9)
+    with (
+        patch(
+            "custom_components.myq.keypad_recording.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=encoder),
+        ),
+        patch("custom_components.myq.keypad_recording.shutil.disk_usage") as usage,
+    ):
+        usage.return_value.free = 10_000_000_000
+        task = asyncio.create_task(
+            record_keypad(cast(TendLiveStream, stream), 5, tmp_path, "ffmpeg")
+        )
+        await asyncio.wait_for(leased.wait(), 2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert released.is_set()
+    encoder.kill.assert_called_once()
+    encoder.wait.assert_awaited_once()
+    assert not await asyncio.to_thread(lambda: list(tmp_path.iterdir()))

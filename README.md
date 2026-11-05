@@ -1,5 +1,12 @@
 # MyQ for Home Assistant
 
+> **Experimental Video Keypad fork:** this branch adds standalone keypad live
+> video, cached snapshots and bounded local recording. The transport has been
+> tested on hardware; end-to-end Home Assistant validation is still in progress.
+> See [status and evidence](docs/VIDEO_KEYPAD.md) and the
+> [contribution plan](docs/CONTRIBUTION_PLAN.md). Installation links below refer
+> to upstream and do not install this development branch.
+
 [![CI](https://github.com/bvdcode/home-assistant-myq/actions/workflows/ci.yml/badge.svg)](https://github.com/bvdcode/home-assistant-myq/actions/workflows/ci.yml)
 [![HACS](https://github.com/bvdcode/home-assistant-myq/actions/workflows/hacs.yml/badge.svg)](https://github.com/bvdcode/home-assistant-myq/actions/workflows/hacs.yml)
 [![Hassfest](https://github.com/bvdcode/home-assistant-myq/actions/workflows/hassfest.yml/badge.svg)](https://github.com/bvdcode/home-assistant-myq/actions/workflows/hassfest.yml)

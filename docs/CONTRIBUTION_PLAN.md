@@ -1,0 +1,80 @@
+# Video Keypad contribution plan
+
+Develop and validate the complete experience in this fork before opening upstream
+pull requests. Keep the upstream account setup, token refresh and coordinator as
+the single source of authorization. Keep the existing TC camera path working.
+No upstream proposal or pull request has been submitted.
+
+## Proposed review sequence
+
+| Change | Scope | Evidence needed before submission |
+| --- | --- | --- |
+| Tend request headers | Reuse standard application metadata for camera API calls | Sanitized 403/200 comparison and request-header regression test |
+| Standalone keypad discovery | Model `vkp-camera` separately from garage doors; allow keypad-only accounts | Inventory tests, removal handling, real HA device/entity creation |
+| Keypad live video | Isolated relay protocol and wake lifecycle; session factory in the existing shared stream | Real HA playback, full decode, TLS identity checks, failure cleanup, unload/reload and recovery |
+| Battery-aware snapshots and session lifecycle | Cached frames, no wake for snapshots, shared consumers, idle close | Verify cloud/session counters stay unchanged for idle snapshots and stop after the final consumer leaves |
+| Local recording | Bounded service, shared session, usable-duration and full-decode validation, cancellation cleanup | Live HA recordings, concurrent viewing, interrupted recording, low-storage refusal and media visibility |
+
+Split commits along these boundaries when the complete implementation passes its
+acceptance checks. Some discovery/model changes may need to accompany streaming
+so an intermediate PR does not expose a nonfunctional camera. Keep each submitted
+PR independently testable; do not force the conceptual split into unusable releases.
+
+## Acceptance on the Yellow
+
+1. Complete native browser authorization and persist tokens through HA's existing
+   account flow. Verify refresh ownership and restart persistence; never copy a
+   refresh chain into two independent consumers.
+2. Confirm one keypad device and camera entity, with existing garage entities
+   preserved. Do not operate a physical door in automated tests.
+3. Play through HA and decode the resulting video. Record first-frame latency and
+   errors without serials, tokens, service URLs containing secrets or raw responses.
+4. Open two consumers and record simultaneously. Verify one camera session and
+   continued recording when a viewer closes.
+5. Close the final consumer and verify relay shutdown after the configured grace.
+   Check HA stream preloading: a persistent HA consumer can keep the camera awake
+   even after a dashboard closes. Do not claim battery-safe dashboard behavior
+   solely from the stream server's lease tests.
+6. Request cached snapshots while idle. Confirm no wake, token request or new
+   relay session. Document that the image can be old and is absent after restart
+   until live video supplies a keyframe.
+7. Verify a live recording's requested media duration, frame count and full decode
+   on the Yellow. Verify failure/cancellation removes partial files. The current
+   1 GB free-space and 2 GB stored-clip checks are admission limits, not retention
+   or a hard quota; simultaneous recordings and external disk use require care.
+8. Exercise failed connection recovery and integration unload/reload. Confirm no
+   orphan worker, encoder or stream listener, and that a later live request works.
+9. Save sanitized evidence and deployment/rollback steps. Publish the tested fork
+   branch with a clear experimental status before proposing upstream changes.
+
+## Battery and recording policy
+
+Use explicit live viewing and bounded recording as defaults. Avoid scheduled
+snapshots that wake the keypad. Share the same stream for recording and viewing;
+do not create a second account or relay connection for the recorder. The keypad
+idle grace is currently 20 seconds, versus the existing TC path's 60 seconds.
+This reduces idle session time by design, but battery-life improvement has not
+been measured. A longer grace may save repeated wake cycles during short visits.
+
+The recorder targets received frames at 20 fps, rather than claiming continuous
+wall-clock coverage across outages. Recovery can extend elapsed time, up to the
+bounded deadline. There is no pre-event buffer while the camera sleeps. Triggered
+recording may miss the beginning of an event because waking and connecting takes
+time. Continuous coverage would require keeping the stream active, with a battery
+cost that must be measured before recommending it.
+
+## Research kept out of the initial contributions
+
+Native motion delivery has not been demonstrated. Registering a push receiver is
+not evidence that real keypad motion arrives. Cloud recording retrieval has not
+been validated with an entitled account; the test account has no video subscription.
+Do not advertise motion triggers or cloud-clip download as implemented features.
+
+Authorization remains dependent on myQ's cloud and acceptance of the community
+client/App Check approach. Running without an Android app does not make this a
+local-only integration or guarantee future access. Reuse upstream authorization
+instead of shipping captured credentials or a parallel token-bootstrap mechanism.
+
+Retain a long-lived fork only if the upstream project declines the architecture
+or cannot accommodate keypad support. Consider a separate recorder component only
+if storage/retention requirements grow beyond a small bounded recording service.

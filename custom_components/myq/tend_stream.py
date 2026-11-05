@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from typing import Protocol
 
 from aiohttp import ClientError, web
 
@@ -17,6 +19,15 @@ _LOGGER = logging.getLogger(__name__)
 _IDLE_SECONDS = 60
 _FRAME_TIMEOUT = 30
 _SHUTDOWN_TIMEOUT = 0.1
+
+
+class CameraSession(Protocol):
+    ended: bool
+
+    async def close(self) -> None: ...
+
+
+type SessionFactory = Callable[[str, Callable[[bytes], None]], Awaitable[CameraSession]]
 
 
 def _nals(data: bytes) -> list[tuple[int, bytes]]:
@@ -43,7 +54,13 @@ class _Viewer:
         if self.ended:
             return
         if self.frames.full():
-            self.frames.get_nowait()
+            # Dropping arbitrary H.264 frames corrupts the rest of the GOP.
+            # End only this slow consumer; it may reconnect at a fresh keyframe.
+            while not self.frames.empty():
+                self.frames.get_nowait()
+            self.frames.put_nowait(b"")
+            self.ended = True
+            return
         self.frames.put_nowait(frame)
 
     def end(self) -> None:
@@ -54,17 +71,27 @@ class _Viewer:
 class TendLiveStream:
     """Expose one TC camera session to multiple local stream consumers."""
 
-    def __init__(self, opener_serial: str, token_supplier: Callable[[], Awaitable[str]]) -> None:
+    def __init__(
+        self,
+        opener_serial: str,
+        token_supplier: Callable[[], Awaitable[str]],
+        *,
+        session_factory: SessionFactory | None = None,
+        idle_seconds: float | None = None,
+    ) -> None:
         self._opener_serial = opener_serial
         self._token_supplier = token_supplier
+        self._session_factory = session_factory
+        self._idle_seconds = idle_seconds
         self._runner: web.AppRunner | None = None
         self._url: str | None = None
         self._server_lock = asyncio.Lock()
         self._session_lock = asyncio.Lock()
-        self._session: TendSession | None = None
+        self._session: CameraSession | None = None
         self._viewers: set[_Viewer] = set()
         self._sps: bytes | None = None
         self._pps: bytes | None = None
+        self.snapshot_frame: bytes | None = None
         self._idle_timer: asyncio.TimerHandle | None = None
         self._idle_task: asyncio.Task[None] | None = None
         self._shutdown_task: asyncio.Task[None] | None = None
@@ -105,9 +132,13 @@ class TendLiveStream:
                 self._idle_timer = None
             if self._session is None or self._session.ended:
                 await self._close_session()
-                self._session = await TendSession.open(
-                    self._opener_serial, await self._token_supplier(), self._on_frame
-                )
+                token = await self._token_supplier()
+                if self._session_factory is None:
+                    self._session = await TendSession.open(
+                        self._opener_serial, token, self._on_frame
+                    )
+                else:
+                    self._session = await self._session_factory(token, self._on_frame)
             viewer = _Viewer()
             self._viewers.add(viewer)
             return viewer
@@ -126,6 +157,10 @@ class TendLiveStream:
                 self._sps = nal
             elif kind == 8:
                 self._pps = nal
+        if 5 in types and self._sps is not None and self._pps is not None:
+            self.snapshot_frame = (
+                (b"" if 7 in types else self._sps) + (b"" if 8 in types else self._pps) + frame
+            )
         for viewer in self._viewers:
             if not viewer.ready:
                 if 5 not in types or self._sps is None or self._pps is None:
@@ -171,15 +206,27 @@ class TendLiveStream:
                 raise web.HTTPServiceUnavailable() from error
         finally:
             if viewer is not None:
-                self._viewers.discard(viewer)
-                if not self._viewers and not self._closed:
-                    delay = _IDLE_SECONDS
-                    if self._session is not None and self._session.ended:
-                        delay = 0
-                    self._idle_timer = asyncio.get_running_loop().call_later(
-                        delay, self._start_idle_close
-                    )
+                self._unsubscribe(viewer)
         return response
+
+    @asynccontextmanager
+    async def frames(self) -> AsyncIterator[asyncio.Queue[bytes]]:
+        """Lease the shared session for recording; empty bytes mark discontinuity."""
+        viewer = await self._subscribe()
+        try:
+            yield viewer.frames
+        finally:
+            self._unsubscribe(viewer)
+
+    def _unsubscribe(self, viewer: _Viewer) -> None:
+        self._viewers.discard(viewer)
+        if not self._viewers and not self._closed:
+            delay = _IDLE_SECONDS if self._idle_seconds is None else self._idle_seconds
+            if self._session is not None and self._session.ended:
+                delay = 0
+            if self._idle_timer is not None:
+                self._idle_timer.cancel()
+            self._idle_timer = asyncio.get_running_loop().call_later(delay, self._start_idle_close)
 
     def _start_idle_close(self) -> None:
         self._idle_timer = None

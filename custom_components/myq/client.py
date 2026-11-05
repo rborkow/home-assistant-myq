@@ -19,7 +19,7 @@ from .const import (
     USER_AGENT,
 )
 from .exceptions import MyQApiError, MyQAuthenticationError
-from .models import GarageDoor, MyQAccount, MyQCamera
+from .models import GarageDoor, MyQAccount, MyQCamera, VideoKeypad
 from .oauth import MyQAuth
 
 type HeadersFn = Callable[[str], dict[str, str]]
@@ -29,6 +29,12 @@ class MyQClient:
     def __init__(self, session: ClientSession, auth: MyQAuth) -> None:
         self._session = session
         self._auth = auth
+        self._keypads_by_account: dict[str, tuple[VideoKeypad, ...]] = {}
+
+    @property
+    def keypads(self) -> tuple[VideoKeypad, ...]:
+        """Standalone keypad cameras from the same account inventory as doors."""
+        return tuple(camera for group in self._keypads_by_account.values() for camera in group)
 
     async def async_access_token(self) -> str:
         """Return the current OAuth token for Tend camera signaling."""
@@ -65,6 +71,10 @@ class MyQClient:
         door_groups = await asyncio.gather(
             *(self._async_get_account_doors(account) for account in accounts)
         )
+        account_ids = {account.account_id for account in accounts}
+        self._keypads_by_account = {
+            key: value for key, value in self._keypads_by_account.items() if key in account_ids
+        }
         return tuple(door for group in door_groups for door in group)
 
     async def async_open_door(self, door: GarageDoor) -> None:
@@ -98,6 +108,7 @@ class MyQClient:
 
         door_items: list[dict[str, object]] = []
         cameras: dict[str, MyQCamera] = {}
+        keypads: list[VideoKeypad] = []
         for raw_item in raw_items:
             if not isinstance(raw_item, dict):
                 raise MyQApiError("MyQ returned an invalid device")
@@ -113,7 +124,18 @@ class MyQClient:
                             serial_number,
                             _online(item.get("state")),
                             model if isinstance(model, str) else None,
+                            _string_field(item.get("state"), "mac_address"),
                         )
+                        if item.get("device_type") == "vkp-camera":
+                            name = item.get("name")
+                            keypads.append(
+                                VideoKeypad(
+                                    account.account_id,
+                                    name if isinstance(name, str) else "Video Keypad",
+                                    cameras[serial_number],
+                                )
+                            )
+        self._keypads_by_account[account.account_id] = tuple(keypads)
         return tuple(_garage_door(account.account_id, item, cameras) for item in door_items)
 
     async def _async_command(self, door: GarageDoor, command: str) -> None:
@@ -151,6 +173,11 @@ class MyQClient:
             if response.status >= 400:
                 raise MyQApiError(f"MyQ returned HTTP {response.status}")
             return body
+
+
+def _string_field(raw: object, key: str) -> str | None:
+    value = raw.get(key) if isinstance(raw, dict) else None
+    return value if isinstance(value, str) else None
 
 
 def _online(raw_state: object) -> bool | None:
@@ -239,6 +266,7 @@ def _api_headers(access_token: str) -> dict[str, str]:
 
 def _tend_headers(access_token: str) -> dict[str, str]:
     return {
+        **_api_headers(access_token),
         "AntiCSRF": "AntiCSRF",
         "Authorization": f"Bearer {access_token}",
         "SeedonkLocale": TEND_LOCALE,

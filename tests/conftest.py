@@ -34,4 +34,5 @@ def mock_myq_client() -> Generator[MagicMock]:
     with patch("custom_components.myq.config_flow.MyQClient") as client_class:
         client = client_class.return_value
         client.async_get_garage_doors = AsyncMock()
+        client.keypads = ()
         yield client

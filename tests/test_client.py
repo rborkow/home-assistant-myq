@@ -137,6 +137,10 @@ async def test_camera_image_uses_tend_snapshot_endpoint() -> None:
             "devices/10000001/cam/recentImage.jpg",
             {
                 "headers": {
+                    "Accept": "application/json",
+                    "App-Version": "5.243.1.73243",
+                    "BrandId": "1",
+                    "User-Agent": "sdk_gphone_x86/Android 11",
                     "AntiCSRF": "AntiCSRF",
                     "Authorization": "Bearer access",
                     "SeedonkLocale": "en-US",

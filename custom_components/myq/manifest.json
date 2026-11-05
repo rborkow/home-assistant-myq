@@ -8,9 +8,10 @@
     "@bvdcode"
   ],
   "config_flow": true,
-  "documentation": "https://github.com/bvdcode/home-assistant-myq",
+  "dependencies": ["ffmpeg"],
+  "documentation": "https://github.com/rborkow/home-assistant-myq/tree/feature/video-keypad",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/bvdcode/home-assistant-myq/issues",
-  "version": "0.2.9"
+  "issue_tracker": "https://github.com/rborkow/home-assistant-myq/issues",
+  "version": "0.3.0.dev1"
 }

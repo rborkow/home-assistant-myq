@@ -311,7 +311,7 @@ class MyQConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._close_login()
             return self.async_abort(reason="unknown")
         self._close_login()
-        if not doors:
+        if not doors and not client.keypads:
             return self.async_abort(reason="no_devices")
 
         data = MyQConfigData(

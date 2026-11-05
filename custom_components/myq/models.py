@@ -28,6 +28,7 @@ class MyQCamera:
     serial_number: str
     online: bool | None = None
     device_model: str | None = None
+    mac_address: str | None = None
 
     @property
     def serial_prefix(self) -> str | None:
@@ -41,6 +42,13 @@ class MyQCamera:
     def tend_device_id(self) -> str:
         """Return the camera's ID in the Tend video cloud, the numeric tail of its serial."""
         return self.serial_number.rsplit("-", 1)[-1]
+
+
+@dataclass(frozen=True, slots=True)
+class VideoKeypad:
+    account_id: str
+    name: str
+    camera: MyQCamera
 
 
 @dataclass(frozen=True, slots=True)

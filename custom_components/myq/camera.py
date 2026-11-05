@@ -3,16 +3,19 @@
 import asyncio
 import time
 
+import voluptuous as vol
 from aiohttp import ClientError
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import MyQDataUpdateCoordinator
 from .entity import MyQEntity
 from .exceptions import MyQError
+from .keypad_camera import MyQKeypadCamera
 from .models import GarageDoor, MyQCamera
 from .runtime import MyQConfigEntry
 from .tend_stream import TendLiveStream
@@ -33,6 +36,14 @@ async def async_setup_entry(
         for door in coordinator.data.values()
         if door.camera is not None
     )
+    async_add_entities(
+        MyQKeypadCamera(coordinator, keypad) for keypad in coordinator.client.keypads
+    )
+    entity_platform.async_get_current_platform().async_register_entity_service(
+        "record_keypad",
+        {vol.Optional("duration", default=30): vol.All(vol.Coerce(int), vol.Range(min=5, max=300))},
+        "async_record_keypad",
+    )
 
 
 class MyQGarageCamera(MyQEntity, Camera):
@@ -40,6 +51,10 @@ class MyQGarageCamera(MyQEntity, Camera):
 
     _attr_frame_interval = SNAPSHOT_FRAME_INTERVAL
     _attr_translation_key = "camera"
+
+    async def async_record_keypad(self, duration: int = 30) -> None:
+        """Reject the keypad-only service clearly when targeting another camera."""
+        raise HomeAssistantError("Select a Video Keypad camera for this recording action")
 
     def __init__(self, coordinator: MyQDataUpdateCoordinator, door: GarageDoor) -> None:
         super().__init__(coordinator, door)
