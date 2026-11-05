@@ -46,6 +46,11 @@ Offline replay of the real capture through the new recorder produced a validated
 not live recording on the Yellow. Tests cover cancellation cleanup, low-storage
 refusal and sharing one session between a viewer and recorder.
 
+A second offline replay injected a disconnect after frame 40. The recorder opened
+two sessions, closed both, and published a fully decoded five-second/100-frame
+clip in 7.384 seconds. This validates recorder reconnection and media continuity;
+it is not a forced outage of the actual myQ network service.
+
 Subsequent live HA validation:
 
 - `myq.record_keypad`, duration 5: HTTP 200 in 23.53 seconds including wake-up,
@@ -68,6 +73,9 @@ Subsequent live HA validation:
 - An isolated sparse-file quota fixture in the Yellow's HA container triggered
   storage refusal before any camera call and left no partial file. Existing media
   was not modified by this test; low free-space behavior is covered by local tests.
+- A temporary HA automation received both actual `completed` and `cancelled`
+  recording events and emitted the expected test events. Cancellation was triggered
+  by integration reload. The test automation was deleted successfully afterward.
 
 The fresh browser flow reached myQ's sign-in page but was deferred because the
 user was away. Migration success does not prove end-to-end browser onboarding.
@@ -80,10 +88,10 @@ not necessary for users who can complete normal browser sign-in.
 1. Complete normal HA browser onboarding when interactive sign-in is available.
 2. Finish forced network failure recovery and longer shared-viewer checks.
    Shared-consumer and cancellation behavior also have synthetic tests.
-3. Validate recording completion/cancellation events with real automations.
-4. Decide which existing battery/health diagnostics belong in the integration
-   and which remain companion tooling; verify that idle sensor reads do not wake.
-5. Produce sanitized deployment/rollback evidence and a contribution breakdown.
+3. Battery/health scope is recorded in [the battery policy](BATTERY_POLICY.md).
+   Native power sensors remain follow-up work; the existing bridge's cached
+   diagnostics can remain available independently of this camera integration.
+4. Deployment, rollback and contribution documents are available in this directory.
 
 Native motion delivery and entitled cloud-clip download remain unverified
 research. Neither is advertised as an implemented feature in this fork.
