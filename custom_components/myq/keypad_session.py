@@ -64,6 +64,8 @@ class KeypadSession:
         self._on_frame(b"")
 
     def _wake(self, camera: MyQCamera, token: str) -> None:
+        if self._stop.is_set():
+            raise TendStreamError("Keypad session cancelled before wake")
         device_id = camera.tend_device_id
         if not device_id.isdecimal():
             raise TendStreamError("Invalid keypad video identifier")
@@ -113,7 +115,11 @@ class KeypadSession:
         error = None
         stage = "identity"
         try:
+            if self._stop.is_set():
+                return
             resolved_alias = self._resolve_alias(camera, token)
+            if self._stop.is_set():
+                return
             stage = "login"
             control, props = login_routed(
                 {
@@ -127,6 +133,8 @@ class KeypadSession:
                 True,
             )
             self._control = control
+            if self._stop.is_set():
+                return
             alias = props["alias"]
             destination = keypad_destination(props, camera, resolved_alias)
             stage = "relay_connect"
@@ -138,6 +146,8 @@ class KeypadSession:
                 True,
             )
             self._media = media
+            if self._stop.is_set():
+                return
             media.sender, media.recipient = control.sender, control.recipient
             media.send(508, service=122)
             stage = "wake"

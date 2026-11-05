@@ -133,3 +133,36 @@ async def test_viewer_and_recorder_share_session_until_last_lease_ends() -> None
         assert stream.snapshot_frame == keyframe
     finally:
         await stream.close()
+
+
+async def test_cancel_during_identity_lookup_does_not_login_or_wake() -> None:
+    import threading
+    from unittest.mock import patch
+
+    from custom_components.myq.keypad_session import KeypadSession
+
+    entered = asyncio.Event()
+    finish = threading.Event()
+    loop = asyncio.get_running_loop()
+    session = KeypadSession(lambda _: None)
+
+    def resolve(camera: MyQCamera, token: str) -> str:
+        loop.call_soon_threadsafe(entered.set)
+        assert finish.wait(2)
+        return "synthetic:alias"
+
+    with (
+        patch.object(session, "_resolve_alias", side_effect=resolve),
+        patch("custom_components.myq.keypad_session.login_routed") as login,
+        patch.object(session, "_wake") as wake,
+    ):
+        session._worker = asyncio.create_task(asyncio.to_thread(session._run, CAMERA, "synthetic"))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            session._stop.set()
+        finally:
+            finish.set()
+        await session.close()
+    assert session.ended
+    login.assert_not_called()
+    wake.assert_not_called()

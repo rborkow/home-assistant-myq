@@ -5,6 +5,12 @@ pull requests. Keep the upstream account setup, token refresh and coordinator as
 the single source of authorization. Keep the existing TC camera path working.
 No upstream proposal or pull request has been submitted.
 
+The fork also offers an explicit advanced authorization transfer for validation
+and migrations from a stopped client. Keep that separate from the core keypad
+PRs: most users should use the upstream browser flow. Transferred tokens are
+refreshed and validated before entry creation; the previous client must not reuse
+the chain. This is not evidence that fresh browser onboarding has been completed.
+
 ## Proposed review sequence
 
 | Change | Scope | Evidence needed before submission |

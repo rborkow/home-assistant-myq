@@ -2,7 +2,7 @@
 
 This fork combines the community integration's account setup and HA entities
 with the independently tested myQ Keypad Bridge relay protocol. It is an
-experimental branch; the full HA deployment and recording validation are in progress.
+experimental branch with live playback and recording verified on an HA Yellow.
 
 ## Implemented
 
@@ -34,8 +34,11 @@ The session closed after the bounded test. This was a development-host test,
 not yet evidence of an HA camera entity playing on the Yellow.
 
 The fork's source was installed on the Yellow beside the original bridge.
-Home Assistant configuration check and restart succeeded. The original bridge
-and its credentials have not been replaced. No garage-door commands were tested.
+Home Assistant configuration check and restart succeeded. An isolated research
+authorization was transferred using the advanced migration flow: HA refreshed it,
+validated device discovery and created a loaded entry and standalone keypad camera.
+The research token file was retired; HA owns that refresh chain. The original bridge
+and its separate credentials have not been replaced. No garage-door commands were tested.
 Raw account data, captures and credentials are outside this repository.
 
 Offline replay of the real capture through the new recorder produced a validated
@@ -43,14 +46,41 @@ Offline replay of the real capture through the new recorder produced a validated
 not live recording on the Yellow. Tests cover cancellation cleanup, low-storage
 refusal and sharing one session between a viewer and recorder.
 
+Subsequent live HA validation:
+
+- `myq.record_keypad`, duration 5: HTTP 200 in 23.53 seconds including wake-up,
+  capture and validation; 100 decoded H.264 frames at 1152x864, duration 5.000
+  seconds, 854451 bytes, no remaining partial files. Independent full decode passed.
+- HA's `camera/stream` HLS endpoint produced a 5.002-second capture with 103 frames.
+  Packet DTS values strictly increase. Full decode with a 1/90000 output timebase
+  passed; the null muxer's default coarse timebase caused rounding warnings.
+- A further five-second recording while HA's stream producer was active completed
+  in 7.85 seconds. One control and one media relay connection were observed.
+- Stream preloading was disabled. Both relay connections later closed after idle.
+  The HA camera proxy returned a cached JPEG (147053 bytes); relay connections
+  remained absent at the subsequent check.
+- Integration reload returned success. A fresh five-second recording after reload
+  completed successfully in 11.92 seconds. A full HA restart preserved the
+  authorization: the entry loaded and the camera returned idle.
+- Reload during an active recording interrupted the HTTP request (502), removed
+  the partial file and left the completed-clip count unchanged at six. The service
+  now emits `myq_keypad_recording_finished` with `status: cancelled` on cancellation.
+- An isolated sparse-file quota fixture in the Yellow's HA container triggered
+  storage refusal before any camera call and left no partial file. Existing media
+  was not modified by this test; low free-space behavior is covered by local tests.
+
+The fresh browser flow reached myQ's sign-in page but was deferred because the
+user was away. Migration success does not prove end-to-end browser onboarding.
+The migration action is an advanced fork feature; its new strings currently use
+English fallback text in other locales. Stop the old token owner first. It is
+not necessary for users who can complete normal browser sign-in.
+
 ## Remaining acceptance checks
 
-1. Complete the normal HA browser setup and verify keypad entity/device creation.
-2. Play and decode video through HA, then exercise shared viewers, cached
-   snapshots, idle shutdown, unload/reload and retry after a failed connection.
-3. Validate the integrated recorder without introducing a second account refresh
-   owner or a competing camera session. Verify usable
-   duration, full decode, failure cleanup and storage limits on the Yellow.
+1. Complete normal HA browser onboarding when interactive sign-in is available.
+2. Finish forced network failure recovery and longer shared-viewer checks.
+   Shared-consumer and cancellation behavior also have synthetic tests.
+3. Validate recording completion/cancellation events with real automations.
 4. Decide which existing battery/health diagnostics belong in the integration
    and which remain companion tooling; verify that idle sensor reads do not wake.
 5. Produce sanitized deployment/rollback evidence and a contribution breakdown.

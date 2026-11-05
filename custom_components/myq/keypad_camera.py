@@ -164,7 +164,19 @@ class MyQKeypadCamera(CoordinatorEntity[MyQDataUpdateCoordinator], Camera):
                         **asdict(result),
                     },
                 )
-            except (OSError, ValueError, TendStreamError, TimeoutError) as error:
+            except asyncio.CancelledError:
+                self.hass.bus.async_fire(
+                    "myq_keypad_recording_finished",
+                    {"entity_id": self.entity_id, "status": "cancelled"},
+                )
+                raise
+            except (
+                HomeAssistantError,
+                OSError,
+                ValueError,
+                TendStreamError,
+                TimeoutError,
+            ) as error:
                 self.hass.bus.async_fire(
                     "myq_keypad_recording_finished",
                     {
@@ -173,6 +185,6 @@ class MyQKeypadCamera(CoordinatorEntity[MyQDataUpdateCoordinator], Camera):
                         "error_type": type(error).__name__,
                     },
                 )
-                raise HomeAssistantError("Keypad recording failed validation") from error
+                raise HomeAssistantError("Keypad recording failed") from error
             finally:
                 self._record_task = None
