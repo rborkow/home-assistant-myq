@@ -270,3 +270,127 @@ def test_slow_consumer_ends_instead_of_dropping_a_reference_frame() -> None:
     assert viewer.ended
     assert viewer.frames.get_nowait() == b""
     assert viewer.frames.empty()
+
+
+async def test_prepare_runs_once_for_concurrent_consumers_and_again_for_reconnect(
+    open_session: AsyncMock,
+) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def prepare() -> None:
+        entered.set()
+        await release.wait()
+
+    preparation = AsyncMock(side_effect=prepare)
+    stream = TendLiveStream("", AsyncMock(return_value="token"), prepare_session=preparation)
+    try:
+        first = asyncio.create_task(stream._subscribe())
+        await entered.wait()
+        second = asyncio.create_task(stream._subscribe())
+        await asyncio.sleep(0)
+        preparation.assert_awaited_once()
+        open_session.assert_not_awaited()
+        release.set()
+        viewers = await asyncio.gather(first, second)
+        assert len(set(viewers)) == 2
+        preparation.assert_awaited_once()
+        open_session.assert_awaited_once()
+        assert stream._session is not None
+        stream._session.ended = True
+        await stream._subscribe()
+        assert preparation.await_count == 2
+        assert open_session.await_count == 2
+    finally:
+        await stream.close()
+
+
+async def test_preparation_is_passive_until_a_consumer_subscribes(
+    socket_enabled: None,
+    open_session: AsyncMock,
+) -> None:
+    del socket_enabled
+    prepare = AsyncMock()
+    token = AsyncMock(return_value="token")
+    stream = TendLiveStream("", token, prepare_session=prepare)
+    try:
+        assert (await stream.source_url()).startswith("http://127.0.0.1:")
+        assert stream.snapshot_frame is None
+        prepare.assert_not_awaited()
+        token.assert_not_awaited()
+        open_session.assert_not_awaited()
+    finally:
+        await stream.close()
+
+
+async def test_close_cancels_pending_wake_before_token_or_camera_session(
+    open_session: AsyncMock,
+) -> None:
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+
+    async def prepare() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    token = AsyncMock(return_value="token")
+    stream = TendLiveStream("", token, prepare_session=prepare)
+    subscribe = asyncio.create_task(stream._subscribe())
+    await started.wait()
+    await asyncio.wait_for(stream.close(), 1)
+    with pytest.raises(asyncio.CancelledError):
+        await subscribe
+    assert stopped.is_set()
+    assert stream._prepare_task is None
+    token.assert_not_awaited()
+    open_session.assert_not_awaited()
+
+
+async def test_cancelled_subscriber_allows_next_consumer_to_prepare(
+    open_session: AsyncMock,
+) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def prepare() -> None:
+        started.set()
+        await release.wait()
+
+    preparation = AsyncMock(side_effect=prepare)
+    stream = TendLiveStream("", AsyncMock(return_value="token"), prepare_session=preparation)
+    first = asyncio.create_task(stream._subscribe())
+    await started.wait()
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert stream._prepare_task is None
+    open_session.assert_not_awaited()
+    try:
+        release.set()
+        await stream._subscribe()
+        assert preparation.await_count == 2
+        open_session.assert_awaited_once()
+    finally:
+        await stream.close()
+
+
+async def test_failed_preparation_is_sanitized_and_does_not_open_video(
+    open_session: AsyncMock,
+) -> None:
+    from custom_components.myq.exceptions import MyQApiError
+
+    token = AsyncMock(return_value="token")
+    stream = TendLiveStream(
+        "", token, prepare_session=AsyncMock(side_effect=MyQApiError("private"))
+    )
+    try:
+        with pytest.raises(TendStreamError, match="prepare for live video") as error:
+            await stream._subscribe()
+        assert "private" not in str(error.value)
+        token.assert_not_awaited()
+        open_session.assert_not_awaited()
+    finally:
+        await stream.close()

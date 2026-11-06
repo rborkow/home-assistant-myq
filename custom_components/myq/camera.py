@@ -155,6 +155,7 @@ class _MyQCameraMixin(Camera):
                     lan_only=lan_only,
                     idle_seconds=20,
                     on_snapshot=self._received_snapshot,
+                    prepare_session=self._prepare_keypad_stream,
                 )
             else:
                 self._live_stream = TendLiveStream(
@@ -163,6 +164,12 @@ class _MyQCameraMixin(Camera):
                     lan_only=lan_only,
                 )
         return await self._live_stream.source_url()
+
+    async def _prepare_keypad_stream(self) -> None:
+        camera = self.camera
+        if camera is None:
+            raise TendStreamError("Keypad is no longer present")
+        await self.coordinator.client.async_prepare_keypad(camera)
 
     async def async_will_remove_from_hass(self) -> None:
         """Close the source before waiting for the stream reader to stop."""

@@ -27,12 +27,14 @@ async def test_keypad_preview_requests_do_not_authorize_poll_or_start_live(
     coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
     coordinator.client.async_get_camera_image = AsyncMock()
     coordinator.client.async_access_token = AsyncMock()
+    coordinator.client.async_prepare_keypad = AsyncMock()
     camera = MyQStandaloneCamera(coordinator, KEYPAD)
     for _ in range(3):
         assert await camera.async_camera_image() is None
     assert camera._live_stream is None
     coordinator.client.async_get_camera_image.assert_not_awaited()
     coordinator.client.async_access_token.assert_not_awaited()
+    coordinator.client.async_prepare_keypad.assert_not_awaited()
 
 
 async def test_keyframe_cache_has_parameter_sets_and_does_not_subscribe() -> None:

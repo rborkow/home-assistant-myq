@@ -19,6 +19,7 @@ from .const import (
     USER_AGENT,
 )
 from .exceptions import MyQApiError, MyQAuthenticationError
+from .keypad_wake import async_wake_keypad
 from .models import GarageDoor, MyQAccount, MyQCamera, MyQDevices
 from .oauth import MyQAuth
 
@@ -35,6 +36,23 @@ class MyQClient:
     async def async_access_token(self) -> str:
         """Return the current OAuth token for Tend camera signaling."""
         return await self._auth.async_access_token()
+
+    async def async_prepare_keypad(self, camera: MyQCamera) -> None:
+        """Prepare only a battery keypad, retaining this client's refresh ownership."""
+        if camera.device_model != "vkp-camera":
+            return
+
+        async def request(method: str, url: str, body: dict[str, object] | None) -> bytes:
+            return await self._async_request(
+                method,
+                url,
+                _tend_headers,
+                json_body=body,
+                allow_redirects=False,
+                max_body_bytes=1_024_000,
+            )
+
+        await async_wake_keypad(camera.tend_device_id, request)
 
     async def async_get_accounts(self) -> tuple[MyQAccount, ...]:
         payload = await self._async_request_json(
@@ -147,17 +165,36 @@ class MyQClient:
         method: str,
         url: str,
         headers: HeadersFn | None = None,
+        *,
+        json_body: dict[str, object] | None = None,
+        allow_redirects: bool | None = None,
+        max_body_bytes: int | None = None,
     ) -> bytes:
         access_token = await self._auth.async_access_token()
-        async with self._session.request(
-            method,
-            url,
-            headers=(headers or _api_headers)(access_token),
-        ) as response:
-            body = await response.read()
+        request_headers = (headers or _api_headers)(access_token)
+        if allow_redirects is None:
+            request = self._session.request(method, url, headers=request_headers)
+        else:
+            request = self._session.request(
+                method,
+                url,
+                headers=request_headers,
+                json=json_body,
+                allow_redirects=allow_redirects,
+            )
+        async with request as response:
+            if max_body_bytes is None:
+                body = await response.read()
+            else:
+                received = bytearray()
+                async for chunk in response.content.iter_chunked(65536):
+                    received.extend(chunk)
+                    if len(received) > max_body_bytes:
+                        raise MyQApiError("MyQ response exceeds size limit")
+                body = bytes(received)
             if response.status in {401, 403}:
                 raise MyQAuthenticationError(f"MyQ returned HTTP {response.status}")
-            if response.status >= 400:
+            if response.status >= (300 if allow_redirects is False else 400):
                 raise MyQApiError(f"MyQ returned HTTP {response.status}")
             return body
 
@@ -248,6 +285,7 @@ def _api_headers(access_token: str) -> dict[str, str]:
 
 def _tend_headers(access_token: str) -> dict[str, str]:
     return {
+        **_api_headers(access_token),
         "AntiCSRF": "AntiCSRF",
         "Authorization": f"Bearer {access_token}",
         "SeedonkLocale": TEND_LOCALE,

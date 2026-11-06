@@ -293,6 +293,10 @@ async def test_unattached_camera_streams_without_an_opener_serial() -> None:
         assert await entity.stream_source() == "http://127.0.0.1/x"
     assert stream_class.call_args.args[0] == ""
     assert stream_class.call_args.kwargs["idle_seconds"] == 20
+    coordinator.client.async_prepare_keypad = AsyncMock()
+    coordinator.client.async_prepare_keypad.assert_not_awaited()
+    await stream_class.call_args.kwargs["prepare_session"]()
+    coordinator.client.async_prepare_keypad.assert_awaited_once_with(KEYPAD)
 
 
 async def test_camera_passes_lan_only_option_to_shared_stream() -> None:
