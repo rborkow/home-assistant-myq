@@ -6,22 +6,29 @@ door (such as the Video Keypad) get a device of their own.
 
 import asyncio
 import time
+from dataclasses import asdict
 
+import voluptuous as vol
 from aiohttp import ClientError
 from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.ffmpeg import get_ffmpeg_manager
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_platform
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.setup import async_setup_component
 
 from .const import CONF_CAMERA_LAN_ONLY, DOMAIN, MANUFACTURER
 from .coordinator import MyQDataUpdateCoordinator
 from .entity import MyQEntity
 from .exceptions import MyQError
 from .keypad_preview import KeypadPreview
+from .keypad_recording import record_keypad
 from .models import GarageDoor, MyQCamera
 from .runtime import MyQConfigEntry
+from .tend_protocol import TendStreamError
 from .tend_stream import TendLiveStream
 
 SNAPSHOT_FRAME_INTERVAL = 5.0
@@ -45,6 +52,15 @@ async def async_setup_entry(
         MyQStandaloneCamera(coordinator, camera) for camera in coordinator.cameras.values()
     )
     async_add_entities(entities)
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        "record_keypad",
+        {vol.Optional("duration"): vol.All(vol.Coerce(int), vol.Range(min=5, max=300))},
+        "async_record_keypad",
+    )
+    platform.async_register_entity_service(
+        "cancel_keypad_recording", {}, "async_cancel_keypad_recording"
+    )
 
 
 class _MyQCameraMixin(Camera):
@@ -61,6 +77,9 @@ class _MyQCameraMixin(Camera):
             else None
         )
         self._opener_serial = opener_serial
+        self._record_lock = asyncio.Lock()
+        self._record_task: asyncio.Task[object] | None = None
+        self._last_record_started: float | None = None
         self._capture_lock = asyncio.Lock()
         self._image: bytes | None = None
         self._captured_at = 0.0
@@ -148,6 +167,7 @@ class _MyQCameraMixin(Camera):
     async def async_will_remove_from_hass(self) -> None:
         """Close the source before waiting for the stream reader to stop."""
         try:
+            await self.async_cancel_keypad_recording()
             if self._live_stream is not None:
                 await self._live_stream.close()
         finally:
@@ -160,6 +180,70 @@ class _MyQCameraMixin(Camera):
                     await self.stream.stop()
                     self.stream = None
                 await super().async_will_remove_from_hass()
+
+    async def async_record_keypad(self, duration: int | None = None) -> None:
+        """Record received keypad video with the existing shared camera session."""
+        camera = self.camera
+        if camera is None or camera.device_model != VIDEO_KEYPAD_MODEL:
+            raise HomeAssistantError("Select a Video Keypad camera")
+        if self._record_lock.locked():
+            raise HomeAssistantError("A keypad recording is already active")
+        entry = self.coordinator.config_entry
+        options = entry.options if entry else {}
+        duration = duration if duration is not None else int(options.get("recording_duration", 30))
+        if isinstance(duration, bool) or not 5 <= duration <= 300:
+            raise HomeAssistantError("Recording duration must be 5 to 300 seconds")
+        cooldown = int(options.get("recording_cooldown", 60))
+        if (
+            self._last_record_started is not None
+            and time.monotonic() - self._last_record_started < cooldown
+        ):
+            raise HomeAssistantError("Keypad recording cooldown is active")
+        self._last_record_started = time.monotonic()
+        async with self._record_lock:
+            self._record_task = asyncio.current_task()
+            try:
+                if await self.stream_source() is None or self._live_stream is None:
+                    raise TendStreamError("Keypad live stream is unavailable")
+                if not await async_setup_component(self.hass, "ffmpeg", {}):
+                    raise TendStreamError("FFmpeg setup failed")
+                result = await record_keypad(
+                    self._live_stream,
+                    duration,
+                    self.coordinator.recordings.root,
+                    get_ffmpeg_manager(self.hass).binary,
+                    enroll=self.coordinator.recordings.async_add,
+                )
+                self.hass.bus.async_fire(
+                    "myq_keypad_recording_finished",
+                    {"entity_id": self.entity_id, "status": "completed", **asdict(result)},
+                )
+            except asyncio.CancelledError:
+                self.hass.bus.async_fire(
+                    "myq_keypad_recording_finished",
+                    {"entity_id": self.entity_id, "status": "cancelled"},
+                )
+                raise
+            except (OSError, TendStreamError, TimeoutError, ValueError) as error:
+                self.hass.bus.async_fire(
+                    "myq_keypad_recording_finished",
+                    {
+                        "entity_id": self.entity_id,
+                        "status": "failed",
+                        "error": type(error).__name__,
+                    },
+                )
+                raise HomeAssistantError("Keypad recording failed") from error
+            finally:
+                self._record_task = None
+
+    async def async_cancel_keypad_recording(self) -> None:
+        """Cancel the recording consumer, preserving other live viewers."""
+        task = self._record_task
+        if task is not None and task is not asyncio.current_task():
+            if not task.cancelling():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 class MyQGarageCamera(MyQEntity, _MyQCameraMixin):

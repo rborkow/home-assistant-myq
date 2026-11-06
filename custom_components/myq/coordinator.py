@@ -19,6 +19,7 @@ from .const import (
     DOMAIN,
 )
 from .exceptions import MyQApiError, MyQAuthenticationError
+from .keypad_retention import KeypadRecordings
 from .models import MyQCamera
 from .runtime import MyQConfigEntry, MyQCoordinatorData
 
@@ -48,6 +49,7 @@ class MyQDataUpdateCoordinator(DataUpdateCoordinator[MyQCoordinatorData]):
             update_interval=DEFAULT_UPDATE_INTERVAL,
         )
         self.client = client
+        self.recordings = KeypadRecordings(hass, entry.entry_id)
         self._pending_commands: dict[str, _PendingCommand] = {}
         self.cameras: dict[str, MyQCamera] = {}
 

@@ -153,3 +153,38 @@ leaves (Home Assistant's own stream worker may remain attached longer). Ordinary
 garage camera behavior is unchanged. Avoid stream preloading on a battery keypad.
 Live viewing still uses battery and cloud authorization/signaling; this change
 does not add background recording or establish a battery-life improvement.
+
+
+### Local Video Keypad recording (experimental)
+
+With standalone keypad support, `myq.record_keypad` records the selected keypad
+camera into **Media → Local media → myq-keypad**. Optional `duration` is 5–300
+seconds (default 30). It leases the same upstream camera session as live viewers;
+`myq.cancel_keypad_recording` cancels only the recording consumer. Integration
+unload also cancels active recordings and removes partial files.
+
+Only fully probed and decoded H.264 clips are published. Duration counts received
+frames at the requested 20 fps; missing video can extend wall time and is not a
+pre-event buffer. There is no audio. Admission requires 1 GB free and less than
+2 GB of stored MP4s; this is not a hard quota.
+
+Configure recording duration, cooldown (default 60 seconds), and retention under
+**Settings → Devices & services → MyQ → Configure**. Retention defaults to 30 days;
+0 keeps managed clips indefinitely. Only successful recordings enrolled in the
+persistent ownership ledger can expire. Existing, replaced, and symlinked files
+are not enrolled or deleted. Cleanup runs hourly and at setup.
+
+The `myq_keypad_recording_finished` event reports `completed`, `cancelled`, or
+`failed`. Completed events include the path, frame count, media duration and wall
+duration; failures include only an error type. A cancelled blocking service request
+may end before returning its normal response; use this event to observe completion.
+
+This contribution reuses upstream's camera/session code and depends on standalone
+camera support in PR #11. Automated tests cover lifecycle and storage boundaries;
+hardware validation of this upstream composition is still pending. Hardware results
+from the earlier development fork must not be treated as validation of this branch.
+
+Cancellation stops capture and validation. Once final publication starts, a late
+cancel waits for publication and retention enrollment to finish; the result is
+reported as completed rather than leaving an unmanaged, cancelled clip. Failed
+publication removes only the new clip.

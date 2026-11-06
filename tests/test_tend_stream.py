@@ -246,3 +246,27 @@ async def test_lan_only_applies_to_every_new_session(open_session: AsyncMock) ->
         assert open_session.await_args.kwargs == {"lan_only": True}
     finally:
         await stream.close()
+
+
+async def test_recording_lease_shares_and_releases_only_its_viewer(
+    live: TendLiveStream,
+    open_session: AsyncMock,
+) -> None:
+    async with live.frames() as first:
+        async with live.frames() as second:
+            open_session.assert_awaited_once()
+            live._on_frame(SPS + PPS + IDR)
+            assert await first.get() == await second.get() == SPS + PPS + IDR
+        assert len(live._viewers) == 1
+        live._on_frame(PFRAME)
+        assert await first.get() == PFRAME
+    assert not live._viewers
+
+
+def test_slow_consumer_ends_instead_of_dropping_a_reference_frame() -> None:
+    viewer = _Viewer()
+    for _ in range(61):
+        viewer.put(PFRAME)
+    assert viewer.ended
+    assert viewer.frames.get_nowait() == b""
+    assert viewer.frames.empty()

@@ -141,11 +141,15 @@
     "step": {
       "init": {
         "title": "Camera video transport",
-        "description": "Require video to come from the camera’s private LAN address. Cloud authorization and connection setup are still required. If the LAN path is unavailable, playback fails instead of using a public candidate. Changing this option closes active camera sessions. This setting applies to live video only; snapshots still use the cloud.",
+        "description": "Require video to come from the camera’s private LAN address. Cloud authorization and connection setup are still required. If the LAN path is unavailable, playback fails instead of using a public candidate. Changing this option closes active camera sessions. This setting applies to live video only; snapshots still use the cloud. Recording defaults for Video Keypads. Only newly managed clips expire; existing files are preserved. Set retention to 0 to keep managed clips indefinitely. Longer recordings and frequent triggers use more battery.",
         "data": {
-          "camera_lan_only": "Require LAN-only camera video"
+          "camera_lan_only": "Require LAN-only camera video",
+          "recording_duration": "Default recording duration (seconds)",
+          "recording_cooldown": "Minimum time between recording starts (seconds)",
+          "retention_days": "Delete managed clips after (days; 0 disables deletion)"
         }
       }
     }
-  }
+  },
+  "services": {}
 }

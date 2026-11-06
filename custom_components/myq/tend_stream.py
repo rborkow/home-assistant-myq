@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from aiohttp import ClientError, web
 
@@ -29,7 +30,12 @@ class _Viewer:
         if self.ended:
             return
         if self.frames.full():
-            self.frames.get_nowait()
+            # A missing H.264 reference frame corrupts the rest of its GOP.
+            while not self.frames.empty():
+                self.frames.get_nowait()
+            self.frames.put_nowait(b"")
+            self.ended = True
+            return
         self.frames.put_nowait(frame)
 
     def end(self) -> None:
@@ -150,6 +156,21 @@ class TendLiveStream:
                 viewer.ready = True
             viewer.put(frame)
 
+    @asynccontextmanager
+    async def frames(self) -> AsyncIterator[asyncio.Queue[bytes]]:
+        """Lease the same session used by HLS; cancellation releases only this reader."""
+        viewer = await self._subscribe()
+        try:
+            yield viewer.frames
+        finally:
+            self._unsubscribe(viewer)
+
+    def _unsubscribe(self, viewer: _Viewer) -> None:
+        self._viewers.discard(viewer)
+        if not self._viewers and not self._closed:
+            delay = 0 if self._session is not None and self._session.ended else self._idle_seconds
+            self._idle_timer = asyncio.get_running_loop().call_later(delay, self._start_idle_close)
+
     async def _handle_client(self, request: web.Request) -> web.StreamResponse:
         viewer: _Viewer | None = None
         response = web.StreamResponse(
@@ -184,14 +205,7 @@ class TendLiveStream:
                 raise web.HTTPServiceUnavailable() from error
         finally:
             if viewer is not None:
-                self._viewers.discard(viewer)
-                if not self._viewers and not self._closed:
-                    delay = self._idle_seconds
-                    if self._session is not None and self._session.ended:
-                        delay = 0
-                    self._idle_timer = asyncio.get_running_loop().call_later(
-                        delay, self._start_idle_close
-                    )
+                self._unsubscribe(viewer)
         return response
 
     def _start_idle_close(self) -> None:

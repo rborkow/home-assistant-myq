@@ -7,7 +7,7 @@ import pytest
 from aiohttp import ClientConnectionError
 from homeassistant.components.camera import CameraEntityFeature, async_get_image
 from homeassistant.const import STATE_UNAVAILABLE
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -304,3 +304,83 @@ async def test_camera_passes_lan_only_option_to_shared_stream() -> None:
         factory.assert_called_once_with(
             "door-1", coordinator.client.async_access_token, lan_only=True
         )
+
+
+async def test_keypad_recording_enrolls_only_completed_clip_and_enforces_cooldown(
+    hass: HomeAssistant,
+) -> None:
+    from custom_components.myq.keypad_recording import RecordingResult
+
+    coordinator = MagicMock()
+    coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
+    coordinator.config_entry.options = {"recording_cooldown": 60}
+    coordinator.recordings.async_add = AsyncMock()
+    entity = MyQStandaloneCamera(coordinator, KEYPAD)
+    entity.hass = hass
+    entity.entity_id = "camera.test_keypad"
+    live = MagicMock()
+    entity._live_stream = live
+    result = RecordingResult("/media/myq-keypad/test.mp4", 100, 5, 7)
+    events: list[Event] = []
+    unsubscribe = hass.bus.async_listen("myq_keypad_recording_finished", events.append)
+    with (
+        patch.object(entity, "stream_source", new_callable=AsyncMock, return_value="local"),
+        patch("custom_components.myq.camera.get_ffmpeg_manager") as manager,
+        patch("custom_components.myq.camera.record_keypad", new_callable=AsyncMock) as record,
+    ):
+        manager.return_value.binary = "ffmpeg"
+
+        async def recorded(*args: object, **kwargs: object) -> RecordingResult:
+            await coordinator.recordings.async_add(result.path)
+            return result
+
+        record.side_effect = recorded
+        await entity.async_record_keypad(5)
+        coordinator.recordings.async_add.assert_awaited_once_with(result.path)
+        with pytest.raises(HomeAssistantError, match="cooldown"):
+            await entity.async_record_keypad(5)
+        record.assert_awaited_once()
+        assert record.call_args.kwargs["enroll"] is coordinator.recordings.async_add
+    await hass.async_block_till_done()
+    assert len(events) == 1 and events[0].data["status"] == "completed"
+    unsubscribe()
+
+
+async def test_cancel_recording_preserves_stream_and_does_not_enroll_partial(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = MagicMock()
+    coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
+    coordinator.config_entry.options = {}
+    coordinator.recordings.async_add = AsyncMock()
+    entity = MyQStandaloneCamera(coordinator, KEYPAD)
+    entity.hass = hass
+    entity.entity_id = "camera.test_keypad"
+    live = MagicMock(close=AsyncMock())
+    entity._live_stream = live
+    started = asyncio.Event()
+
+    async def recording(*args: object, **kwargs: object) -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    with (
+        patch.object(entity, "stream_source", new_callable=AsyncMock, return_value="local"),
+        patch("custom_components.myq.camera.get_ffmpeg_manager"),
+        patch("custom_components.myq.camera.record_keypad", side_effect=recording),
+    ):
+        task = asyncio.create_task(entity.async_record_keypad(5))
+        await started.wait()
+        await entity.async_cancel_keypad_recording()
+        assert task.cancelled()
+    coordinator.recordings.async_add.assert_not_awaited()
+    live.close.assert_not_awaited()
+    assert entity._record_task is None
+
+
+async def test_recording_rejects_non_keypad_without_opening_stream() -> None:
+    entity, _ = _entity(DOOR)
+    with patch.object(entity, "stream_source", new_callable=AsyncMock) as source:
+        with pytest.raises(HomeAssistantError, match="Video Keypad"):
+            await entity.async_record_keypad(5)
+        source.assert_not_awaited()
