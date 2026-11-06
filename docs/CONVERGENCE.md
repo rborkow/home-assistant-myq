@@ -10,10 +10,10 @@ There is no second keypad receiver, separate OAuth owner, or Android runtime her
 | Optional LAN-only live video | [#12](https://github.com/bvdcode/home-assistant-myq/pull/12) | Ready for review | 261 tests, Ruff, mypy |
 | Bounded RTP assembly and IDR recovery | [#13](https://github.com/bvdcode/home-assistant-myq/pull/13) | Draft; live hardware compatibility pending | 259 tests, Ruff, mypy |
 | Passive persistent keypad preview | [#14](https://github.com/bvdcode/home-assistant-myq/pull/14) | Draft; depends on #11 | 261 tests, Ruff, mypy |
-| Bounded recording and owned-file retention | [#15](https://github.com/bvdcode/home-assistant-myq/pull/15) | Draft; depends on #11 | 272 tests, Ruff, mypy |
+| Bounded recording and owned-file retention | [#15](https://github.com/bvdcode/home-assistant-myq/pull/15) | Draft; depends on #11 | 273 tests, Ruff, mypy |
 
 PRs #14 and #15 preserve #11 unchanged and link their follow-up-only diffs. They
-should be rebased after #11 lands. The combined branch has 307 passing tests.
+should be rebased after #11 lands. The combined branch has 308 passing tests.
 GitHub currently reports `action_required` for upstream workflows; local checks
 are not a substitute for upstream CI, Hassfest, or HACS validation.
 
