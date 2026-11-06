@@ -7,13 +7,13 @@ import pytest
 from aiohttp import ClientConnectionError
 from homeassistant.components.camera import CameraEntityFeature, async_get_image
 from homeassistant.const import STATE_UNAVAILABLE
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.myq.camera import MyQGarageCamera
+from custom_components.myq.camera import MyQGarageCamera, MyQStandaloneCamera
 from custom_components.myq.const import (
     CONF_EMAIL,
     CONF_MFA_METHOD,
@@ -57,7 +57,9 @@ async def test_live_stream_is_available_only_for_tc_camera() -> None:
             return_value="http://127.0.0.1:1234/test.h264"
         )
         assert await tc_entity.stream_source() == "http://127.0.0.1:1234/test.h264"
-        stream_class.assert_called_once_with("door-1", coordinator.client.async_access_token)
+        stream_class.assert_called_once_with(
+            "door-1", coordinator.client.async_access_token, lan_only=False
+        )
 
     other = replace(DOOR, camera=MyQCamera("GW-0005-10000001", True))
     other_entity, _ = _entity(other)
@@ -217,6 +219,205 @@ async def test_setup_adds_camera_only_for_doors_with_cameras(hass: HomeAssistant
 
 def _entity(door: GarageDoor) -> tuple[MyQGarageCamera, MagicMock]:
     coordinator = MagicMock()
+    coordinator.config_entry = None
     coordinator.data = {door.serial_number: door}
     coordinator.client.async_get_camera_image = AsyncMock(return_value=IMAGE)
     return MyQGarageCamera(coordinator, door), coordinator
+
+
+KEYPAD = MyQCamera("TC-0007-20000001", True, "vkp-camera")
+
+
+async def test_unattached_camera_gets_its_own_device(hass: HomeAssistant) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=EMAIL,
+        data={
+            CONF_EMAIL: EMAIL,
+            CONF_MFA_METHOD: MFA_METHOD_EMAIL,
+            CONF_TOKENS: {
+                "access_token": "access",
+                "refresh_token": "refresh",
+                "expires_at": 9876543210.0,
+            },
+        },
+    )
+    entry.add_to_hass(hass)
+    client = MagicMock()
+    client.async_get_garage_doors = AsyncMock(return_value=(replace(DOOR, camera=None),))
+    client.unattached_cameras = (KEYPAD,)
+    client.async_get_camera_image = AsyncMock(return_value=IMAGE)
+
+    with patch("custom_components.myq.MyQClient", return_value=client):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    camera_id = registry.async_get_entity_id("camera", DOMAIN, "TC-0007-20000001_camera")
+    assert camera_id is not None
+    camera_entry = registry.async_get(camera_id)
+    assert camera_entry is not None
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, "TC-0007-20000001")})
+    assert device is not None
+    assert device.name == "Video Keypad"
+    assert camera_entry.device_id == device.id
+    state = hass.states.get(camera_id)
+    assert state is not None
+    assert state.state == "idle"
+    assert state.attributes["friendly_name"] == "Video Keypad Camera"
+
+    # A never-viewed battery keypad has no preview; an idle dashboard must not fetch one.
+    with pytest.raises(HomeAssistantError):
+        await async_get_image(hass, camera_id)
+    client.async_get_camera_image.assert_not_awaited()
+    assert state.attributes["preview_updated"] is None
+
+    client.unattached_cameras = (replace(KEYPAD, online=False),)
+    await cast(MyQRuntimeData, entry.runtime_data).coordinator.async_refresh()
+    await hass.async_block_till_done()
+    state = hass.states.get(camera_id)
+    assert state is not None
+    assert state.state == STATE_UNAVAILABLE
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_unattached_camera_streams_without_an_opener_serial() -> None:
+    coordinator = MagicMock()
+    coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
+    entity = MyQStandaloneCamera(coordinator, KEYPAD)
+    assert entity.supported_features == CameraEntityFeature.STREAM
+    with patch("custom_components.myq.camera.TendLiveStream") as stream_class:
+        stream_class.return_value.source_url = AsyncMock(return_value="http://127.0.0.1/x")
+        assert await entity.stream_source() == "http://127.0.0.1/x"
+    assert stream_class.call_args.args[0] == ""
+    assert stream_class.call_args.kwargs["idle_seconds"] == 20
+    coordinator.client.async_prepare_keypad = AsyncMock()
+    coordinator.client.async_prepare_keypad.assert_not_awaited()
+    await stream_class.call_args.kwargs["prepare_session"]()
+    coordinator.client.async_prepare_keypad.assert_awaited_once_with(KEYPAD)
+
+
+async def test_camera_passes_lan_only_option_to_shared_stream() -> None:
+    entity, coordinator = _entity(DOOR)
+    coordinator.config_entry = MockConfigEntry(domain=DOMAIN, options={"camera_lan_only": True})
+    with patch("custom_components.myq.camera.TendLiveStream") as factory:
+        factory.return_value.source_url = AsyncMock(return_value="http://127.0.0.1/video")
+        await entity.stream_source()
+        factory.assert_called_once_with(
+            "door-1", coordinator.client.async_access_token, lan_only=True
+        )
+
+
+async def test_keypad_recording_enrolls_only_completed_clip_and_enforces_cooldown(
+    hass: HomeAssistant,
+) -> None:
+    from custom_components.myq.keypad_recording import RecordingResult
+
+    coordinator = MagicMock()
+    coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
+    coordinator.config_entry.options = {"recording_cooldown": 60}
+    coordinator.recordings.async_add = AsyncMock()
+    entity = MyQStandaloneCamera(coordinator, KEYPAD)
+    entity.hass = hass
+    entity.entity_id = "camera.test_keypad"
+    live = MagicMock()
+    entity._live_stream = live
+    result = RecordingResult("/media/myq-keypad/test.mp4", 100, 5, 7)
+    events: list[Event] = []
+    unsubscribe = hass.bus.async_listen("myq_keypad_recording_finished", events.append)
+    with (
+        patch.object(entity, "stream_source", new_callable=AsyncMock, return_value="local"),
+        patch("custom_components.myq.camera.get_ffmpeg_manager") as manager,
+        patch("custom_components.myq.camera.record_keypad", new_callable=AsyncMock) as record,
+    ):
+        manager.return_value.binary = "ffmpeg"
+
+        async def recorded(*args: object, **kwargs: object) -> RecordingResult:
+            await coordinator.recordings.async_add(result.path)
+            return result
+
+        record.side_effect = recorded
+        await entity.async_record_keypad(5)
+        coordinator.recordings.async_add.assert_awaited_once_with(result.path)
+        with pytest.raises(HomeAssistantError, match="cooldown"):
+            await entity.async_record_keypad(5)
+        record.assert_awaited_once()
+        assert record.call_args.kwargs["enroll"] is coordinator.recordings.async_add
+    await hass.async_block_till_done()
+    assert len(events) == 1 and events[0].data["status"] == "completed"
+    unsubscribe()
+
+
+async def test_cancel_recording_preserves_stream_and_does_not_enroll_partial(
+    hass: HomeAssistant,
+) -> None:
+    coordinator = MagicMock()
+    coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
+    coordinator.config_entry.options = {}
+    coordinator.recordings.async_add = AsyncMock()
+    entity = MyQStandaloneCamera(coordinator, KEYPAD)
+    entity.hass = hass
+    entity.entity_id = "camera.test_keypad"
+    live = MagicMock(close=AsyncMock())
+    entity._live_stream = live
+    started = asyncio.Event()
+
+    async def recording(*args: object, **kwargs: object) -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    with (
+        patch.object(entity, "stream_source", new_callable=AsyncMock, return_value="local"),
+        patch("custom_components.myq.camera.get_ffmpeg_manager"),
+        patch("custom_components.myq.camera.record_keypad", side_effect=recording),
+    ):
+        task = asyncio.create_task(entity.async_record_keypad(5))
+        await started.wait()
+        await entity.async_cancel_keypad_recording()
+        assert task.cancelled()
+    coordinator.recordings.async_add.assert_not_awaited()
+    live.close.assert_not_awaited()
+    assert entity._record_task is None
+
+
+async def test_recording_rejects_non_keypad_without_opening_stream() -> None:
+    entity, _ = _entity(DOOR)
+    with patch.object(entity, "stream_source", new_callable=AsyncMock) as source:
+        with pytest.raises(HomeAssistantError, match="Video Keypad"):
+            await entity.async_record_keypad(5)
+        source.assert_not_awaited()
+
+
+async def test_removal_closes_video_when_cancelled_waiting_for_recording_cleanup() -> None:
+    entity, _ = _entity(DOOR)
+    live = MagicMock(close=AsyncMock())
+    entity._live_stream = live
+    ha_stream = MagicMock(stop=AsyncMock())
+    cleanup_started = asyncio.Event()
+
+    async def recording() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleanup_started.set()
+            await asyncio.Event().wait()
+
+    record_task = asyncio.create_task(recording())
+    entity._record_task = record_task
+    await asyncio.sleep(0)
+    with patch.object(entity, "stream", ha_stream):
+        removal = asyncio.create_task(entity.async_will_remove_from_hass())
+        try:
+            await asyncio.wait_for(cleanup_started.wait(), 2)
+            removal.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await removal
+        finally:
+            record_task.cancel()
+            await asyncio.gather(record_task, return_exceptions=True)
+        live.close.assert_awaited_once()
+        ha_stream.stop.assert_awaited_once()
+        assert cast(object, entity._live_stream) is None
+        assert entity.stream is None

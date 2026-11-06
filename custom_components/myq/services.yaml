@@ -1,0 +1,24 @@
+cancel_keypad_recording:
+  name: Cancel Video Keypad recording
+  description: Stop capture and validation without disconnecting other viewers. A clip already being finalized completes and is enrolled in retention.
+  target:
+    entity:
+      domain: camera
+      integration: myq
+record_keypad:
+  name: Record Video Keypad
+  description: Record received video and validate the clip before making it available in local media.
+  target:
+    entity:
+      domain: camera
+      integration: myq
+  fields:
+    duration:
+      name: Video duration
+      description: Seconds of received video. Connection interruptions may extend the elapsed time.
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 300
+          unit_of_measurement: seconds

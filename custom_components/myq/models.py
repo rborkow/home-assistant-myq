@@ -90,3 +90,11 @@ class GarageDoor:
     def is_closing(self) -> bool:
         """Return whether the door is closing."""
         return self.door_state == "closing"
+
+
+@dataclass(frozen=True, slots=True)
+class MyQDevices:
+    """Garage doors plus cameras that are not attached to any door."""
+
+    doors: tuple[GarageDoor, ...]
+    cameras: tuple[MyQCamera, ...] = ()

@@ -23,6 +23,7 @@ from custom_components.myq.tend_protocol import (
     parse_cameras,
     parse_peer_packet,
     register_packet,
+    select_camera,
     store_properties,
 )
 from custom_components.myq.tend_signaling import CxsConnection
@@ -75,8 +76,8 @@ def test_load_properties_follows_java_rules() -> None:
     }
 
 
-def test_tend_video_payload_decrypts_h264_record() -> None:
-    frame = b"\x00\x00\x00\x01\x65\x88\x84"
+async def test_tend_video_payload_decrypts_h264_record() -> None:
+    frame = b"\0\0\0\1\x67sps\0\0\0\1\x68pps\0\0\0\1\x65\x88\x84"
     combined = struct.pack("<I", len(frame)) + frame
     padder = PKCS7(128).padder()
     padded = padder.update(combined) + padder.finalize()
@@ -96,9 +97,8 @@ def test_tend_video_payload_decrypts_h264_record() -> None:
         frames.append,
     )
     rtp = b"\x80\x60" + struct.pack(">HII", 7, 1000, 123) + payload
-    transport._handle_media(struct.pack("<II", 1, 0) + rtp[:12])
-    transport._handle_media(struct.pack("<II", 1, 1) + rtp[12:])
-    transport._handle_media(struct.pack("<II", 2, 0) + b"next")
+    transport._handle_media(struct.pack("<IHH", 1, 2, 0) + rtp[:12])
+    transport._handle_media(struct.pack("<IHH", 1, 2, 1) + rtp[12:])
     assert frames == [frame]
     report = transport._receiver_report()
     assert report is not None
@@ -145,7 +145,7 @@ async def test_signaling_reader_routes_replies_and_reports_loss() -> None:
     connection.close()
 
 
-def test_video_transport_ignores_datagrams_from_unknown_hosts() -> None:
+async def test_video_transport_ignores_datagrams_from_unknown_hosts() -> None:
     frames: list[bytes] = []
     transport = VideoTransport(
         TendCamera("myqalias", "myqalias:mac", "0123456789abcdef", "192.168.1.20"),
@@ -154,7 +154,7 @@ def test_video_transport_ignores_datagrams_from_unknown_hosts() -> None:
     )
     transport._relay_ip = "203.0.113.5"
     transport.channels = [_Channel(MagicMock(), 20000, False), _Channel(MagicMock(), 20001, True)]
-    media = struct.pack("<II", 1, 0) + bytes(16)
+    media = struct.pack("<IHH", 1, 2, 0) + bytes(16)
     announced = bytearray(110)
     announced[:4] = b"SDNK"
     announced[7] = 2
@@ -167,10 +167,51 @@ def test_video_transport_ignores_datagrams_from_unknown_hosts() -> None:
     transport.on_datagram(False, media, stranger)
     transport.on_datagram(False, _sdnk(5, b"\x01"), ("198.51.100.7", 9808))
     assert transport.channels[0].peer is None
-    assert transport._fragments == []
+    assert transport._assembler.buffered == 0
 
     transport.on_datagram(False, bytes(announced), ("203.0.113.5", 30000))
     transport.on_datagram(False, _sdnk(5, b"\x01"), ("198.51.100.7", 9808))
     assert transport.channels[0].connected
     transport.on_datagram(False, media, ("192.168.1.20", 9808))
-    assert transport._fragments == [bytes(16)]
+    assert transport._assembler.buffered == 16
+    transport.close()
+
+
+def test_malformed_payload_never_returns_a_valid_prefix() -> None:
+    frame = b"\0\0\0\1\x65synthetic"
+    prefix = struct.pack("<I", len(frame)) + frame
+    for suffix in (b"x", struct.pack("<I", 100) + b"short", bytes(4)):
+        body = bytes(4) + prefix + suffix
+        payload = b"w1" + struct.pack("<I", len(body)) + body
+        assert decode_video_payload(payload, "0123456789abcdef") == []
+
+
+def test_select_camera_prefers_opener_then_unattached_keypad() -> None:
+    listing = (
+        DEVICE_INFO_LIST
+        + "\nmyqalias:00:00:5E:00:53:03,AES=00+LIP=192.168.1.22+MODEL=VideoKeypadCam1"
+        + "\nmyqalias:00:00:5E:00:53:04,AES=00+LIP=192.168.1.23+MODEL=OtherCam"
+    )
+    cameras = parse_cameras({"device-info-list": listing})
+
+    attached = select_camera(cameras, "door-1")
+    assert attached is not None and attached.destination.endswith("53:02")
+    assert select_camera(cameras, "missing") is None
+    keypad = select_camera(cameras, "")
+    assert keypad is not None and keypad.model == "VideoKeypadCam1"
+
+
+def test_select_camera_uses_only_an_unambiguous_unattached_camera() -> None:
+    one = parse_cameras(
+        {"device-info-list": DEVICE_INFO_LIST + "\nmyqalias:00:00:5E:00:53:03,LIP=192.168.1.22"}
+    )
+    selected = select_camera(one, "")
+    assert selected is not None and selected.destination.endswith("53:03")
+    two = parse_cameras(
+        {
+            "device-info-list": "a:00:00:5E:00:53:03,LIP=192.168.1.22\n"
+            "a:00:00:5E:00:53:04,LIP=192.168.1.23"
+        }
+    )
+    assert select_camera(two, "") is None
+    assert select_camera(parse_cameras({"device-info-list": DEVICE_INFO_LIST}), "") is None

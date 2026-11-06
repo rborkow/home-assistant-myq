@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -23,6 +23,15 @@ class FakeResponse:
 
     async def read(self) -> bytes:
         return self.body.encode() if isinstance(self.body, str) else self.body
+
+    @property
+    def content(self) -> FakeResponse:
+        return self
+
+    async def iter_chunked(self, size: int) -> AsyncIterator[bytes]:
+        body = await self.read()
+        for offset in range(0, len(body), size):
+            yield body[offset : offset + size]
 
 
 @dataclass(frozen=True, slots=True)

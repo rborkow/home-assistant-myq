@@ -414,3 +414,31 @@ def _entry(*, disable_polling: bool = False) -> MockConfigEntry:
 
 def _entry_state(entry: MockConfigEntry) -> ConfigEntryState:
     return cast(ConfigEntryState, entry.state)
+
+
+async def test_camera_policy_reload_ignores_token_and_unrelated_option_updates(
+    hass: HomeAssistant,
+) -> None:
+    entry = _entry()
+    entry.add_to_hass(hass)
+    client = MagicMock()
+    client.async_get_garage_doors = AsyncMock(return_value=(DOOR,))
+    with patch("custom_components.myq.MyQClient", return_value=client):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    with patch.object(hass.config_entries, "async_reload", new_callable=AsyncMock) as reload:
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_TOKENS: {"access_token": "rotated"}}
+        )
+        hass.config_entries.async_update_entry(entry, options={"unrelated": True})
+        await hass.async_block_till_done()
+        reload.assert_not_awaited()
+        hass.config_entries.async_update_entry(entry, options={"camera_lan_only": True})
+        # A token rotation can queue a second callback before the policy reload runs.
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_TOKENS: {"access_token": "rotated-again"}}
+        )
+        await hass.async_block_till_done()
+        reload.assert_awaited_once_with(entry.entry_id)
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

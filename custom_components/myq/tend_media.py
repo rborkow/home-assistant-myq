@@ -13,12 +13,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from .tend_fragments import FragmentAssembler, rtp_payload
 from .tend_protocol import (
     _SDNK_MAGIC,
     TendCamera,
     TendStreamError,
     VideoOffer,
     _media_id,
+    _nals,
     _sdnk,
     decode_video_payload,
     parse_peer_packet,
@@ -27,6 +29,19 @@ from .tend_protocol import (
 
 _LOGGER = logging.getLogger(__name__)
 _RTP_SEQUENCE_MODULUS = 1 << 16
+_LAN_NETWORKS = tuple(
+    ipaddress.IPv4Network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+
+
+def _camera_lan_ip(value: str) -> str:
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError as error:
+        raise TendStreamError("Camera has no valid LAN IPv4 address") from error
+    if not any(address in network for network in _LAN_NETWORKS):
+        raise TendStreamError("Camera address is not RFC1918 LAN IPv4")
+    return str(address)
 
 
 @dataclass(slots=True)
@@ -54,9 +69,16 @@ class VideoTransport:
     """LAN hole punching, RTP assembly, AES decoding, and RTCP reports."""
 
     def __init__(
-        self, camera: TendCamera, offer: VideoOffer, on_frame: Callable[[bytes], None]
+        self,
+        camera: TendCamera,
+        offer: VideoOffer,
+        on_frame: Callable[[bytes], None],
+        *,
+        lan_only: bool = False,
     ) -> None:
         self.camera = camera
+        self._lan_only = lan_only
+        self._lan_ip = _camera_lan_ip(camera.local_ip) if lan_only else ""
         self.offer = offer
         self.on_frame = on_frame
         self.channels: list[_Channel] = []
@@ -65,8 +87,11 @@ class VideoTransport:
         self._camera_ips = {camera.local_ip} if camera.local_ip else set[str]()
         self._connected = asyncio.Event()
         self._report_task: asyncio.Task[None] | None = None
-        self._frame_number: int | None = None
-        self._fragments: list[bytes] = []
+        self._assembler = FragmentAssembler(self._invalidate_gop)
+        self._fragment_timer: asyncio.TimerHandle | None = None
+        self._waiting_idr = True
+        self._sps: bytes | None = None
+        self._pps: bytes | None = None
         self._local_ssrc = secrets.randbits(32)
         self._source_ssrc: int | None = None
         self._base_seq = 0
@@ -93,21 +118,24 @@ class VideoTransport:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             probe.setblocking(False)
-            await loop.sock_connect(probe, (relay_ip, 9))
+            await loop.sock_connect(probe, (self._lan_ip if self._lan_only else relay_ip, 9))
             self.local_ip = probe.getsockname()[0]
         finally:
             probe.close()
+        if self._lan_only and self.local_ip == self._lan_ip:
+            raise TendStreamError("Camera LAN address points to this host")
+        bind_ip = self.local_ip if self._lan_only else "0.0.0.0"
         for _ in range(100):
             media = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             control = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             try:
-                media.bind(("0.0.0.0", 0))
+                media.bind((bind_ip, 0))
                 media_port = media.getsockname()[1]
                 if media_port == 65535:
                     media.close()
                     control.close()
                     continue
-                control.bind(("0.0.0.0", media_port + 1))
+                control.bind((bind_ip, media_port + 1))
                 for sock, is_control in ((media, False), (control, True)):
 
                     def protocol_factory(control_channel: bool = is_control) -> _DatagramHandler:
@@ -171,6 +199,31 @@ class VideoTransport:
         if len(self.channels) < 2:
             return
         channel = self.channels[int(control)]
+        if self._lan_only:
+            if data[:4] == _SDNK_MAGIC and len(data) >= 20 and data[7] == 2:
+                if (
+                    remote != (self._relay_ip, self.offer.relay_port)
+                    or channel.peer is not None
+                    or len(data) != 110
+                    or data[:7] != _SDNK_MAGIC + b"\x01\x00\x00"
+                    or struct.unpack_from(">I", data, 16)[0] != 90
+                ):
+                    return
+                # Only the private identity supplied by authenticated TLS signaling is eligible.
+                channel.peer = next(
+                    (peer for peer in parse_peer_packet(data) if peer[0] == self._lan_ip), None
+                )
+                if channel.peer is not None:
+                    media_id = _media_id(self.camera.device_id)
+                    self._send(
+                        channel,
+                        _sdnk(100, bytes((1, int(control))) + b"V" + media_id + media_id),
+                        remote,
+                    )
+                return
+            # Broker packets never carry media; neither IP nor port may change after selection.
+            if channel.peer is None or remote != channel.peer:
+                return
         # Only the relay and the camera addresses it announced may set peers or send media.
         if remote[0] != self._relay_ip and remote[0] not in self._camera_ips:
             return
@@ -219,26 +272,68 @@ class VideoTransport:
         else:
             self._handle_media(data)
 
-    def _handle_media(self, data: bytes) -> None:
-        if len(data) < 8:
-            return
-        frame_number = struct.unpack_from("<I", data)[0]
-        if self._frame_number is None:
-            self._frame_number = frame_number
-        elif frame_number != self._frame_number:
-            self._flush_rtp()
-            self._frame_number = frame_number
-        self._fragments.append(data[8:])
+    def _invalidate_gop(self) -> None:
+        self._waiting_idr = True
 
-    def _flush_rtp(self) -> None:
-        if not self._fragments:
+    def _schedule_fragment_expiry(self) -> None:
+        deadline = self._assembler.deadline
+        if deadline is None:
+            if self._fragment_timer is not None:
+                self._fragment_timer.cancel()
+                self._fragment_timer = None
+        elif self._fragment_timer is None:
+            self._fragment_timer = asyncio.get_running_loop().call_later(
+                max(0, deadline - time.monotonic()), self._expire_fragments
+            )
+
+    def _expire_fragments(self) -> None:
+        self._fragment_timer = None
+        for packet in self._assembler.expire(time.monotonic()):
+            self._handle_rtp(packet)
+        self._schedule_fragment_expiry()
+
+    def _handle_media(self, data: bytes) -> None:
+        now = time.monotonic()
+        for packet in self._assembler.expire(now):
+            self._handle_rtp(packet)
+        for packet in self._assembler.feed(data, now):
+            self._handle_rtp(packet)
+        self._schedule_fragment_expiry()
+
+    def _handle_rtp(self, packet: bytes) -> None:
+        payload = rtp_payload(packet)
+        if not payload:
+            self._invalidate_gop()
             return
-        rtp = b"".join(self._fragments)
-        self._fragments.clear()
-        if len(rtp) < 12 or rtp[0] >> 6 != 2:
+        source = struct.unpack_from(">I", packet, 8)[0]
+        if self._source_ssrc is not None and self._source_ssrc != source:
+            self._invalidate_gop()
+            self._sps = self._pps = None
+        # Count complete RTP packets even while dependent frames are withheld.
+        self._observe_rtp(packet)
+        records = decode_video_payload(payload, self.offer.aes_key)
+        if not records:
+            self._invalidate_gop()
             return
-        self._observe_rtp(rtp)
-        for record in decode_video_payload(rtp[12:], self.offer.aes_key):
+        for record in records:
+            units = _nals(record)
+            if not units:
+                self._invalidate_gop()
+                continue
+            kinds = {kind for kind, _ in units}
+            for kind, nal in units:
+                if kind == 7:
+                    self._sps = nal
+                elif kind == 8:
+                    self._pps = nal
+            if self._waiting_idr:
+                if 5 not in kinds or self._sps is None or self._pps is None:
+                    continue
+                prefix = (self._sps if 7 not in kinds else b"") + (
+                    self._pps if 8 not in kinds else b""
+                )
+                record = prefix + record
+                self._waiting_idr = False
             self.on_frame(record)
 
     def _observe_rtp(self, rtp: bytes) -> None:
@@ -319,6 +414,10 @@ class VideoTransport:
         return bytes(report)
 
     def close(self) -> None:
+        if self._fragment_timer is not None:
+            self._fragment_timer.cancel()
+            self._fragment_timer = None
+        self._assembler.clear()
         if self._report_task is not None:
             self._report_task.cancel()
             self._report_task = None

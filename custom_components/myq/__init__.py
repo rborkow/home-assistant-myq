@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from datetime import datetime, timedelta
 from typing import cast
 
 from aiohttp import ClientError
@@ -7,9 +8,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.event import async_track_time_interval
 
 from .client import MyQClient
-from .const import CONF_TOKENS, DOMAIN
+from .const import CONF_CAMERA_LAN_ONLY, CONF_TOKENS, DOMAIN
 from .coordinator import MyQDataUpdateCoordinator
 from .exceptions import MyQApiError, MyQAuthenticationError
 from .models import OAuthTokens
@@ -51,6 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyQConfigEntry) -> bool:
         client = MyQClient(async_get_clientsession(hass), auth)
         coordinator = MyQDataUpdateCoordinator(hass, entry, client)
         await coordinator.async_config_entry_first_refresh()
+        await coordinator.recordings.async_load()
     except MyQAuthenticationError as error:
         raise ConfigEntryAuthFailed(
             translation_domain=DOMAIN,
@@ -67,8 +70,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyQConfigEntry) -> bool:
             translation_key="api_error",
         ) from error
 
+    current_lan_only = entry.options.get(CONF_CAMERA_LAN_ONLY, False)
+
+    async def camera_policy_changed(hass: HomeAssistant, updated: MyQConfigEntry) -> None:
+        # Data-only updates (including OAuth refresh) must not interrupt live video.
+        nonlocal current_lan_only
+        policy = updated.options.get(CONF_CAMERA_LAN_ONLY, False)
+        if policy != current_lan_only:
+            current_lan_only = policy
+            await hass.config_entries.async_reload(updated.entry_id)
+
+    entry.async_on_unload(entry.add_update_listener(camera_policy_changed))
     entry.runtime_data = MyQRuntimeData(client=client, coordinator=coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    async def cleanup_recordings(now: datetime) -> None:
+        await coordinator.recordings.async_cleanup(int(entry.options.get("retention_days", 30)))
+
+    entry.async_on_unload(async_track_time_interval(hass, cleanup_recordings, timedelta(hours=1)))
+    await coordinator.recordings.async_cleanup(int(entry.options.get("retention_days", 30)))
     return True
 
 

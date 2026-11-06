@@ -47,3 +47,5 @@ COMMAND_UPDATE_INTERVAL: Final = timedelta(seconds=5)
 COMMAND_UPDATE_MIN_DURATION: Final = timedelta(seconds=30)
 COMMAND_UPDATE_TIMEOUT: Final = timedelta(minutes=1)
 TOKEN_EXPIRY_MARGIN: Final = timedelta(minutes=1)
+
+CONF_CAMERA_LAN_ONLY = "camera_lan_only"

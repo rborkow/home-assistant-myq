@@ -19,6 +19,8 @@ from .const import (
     DOMAIN,
 )
 from .exceptions import MyQApiError, MyQAuthenticationError
+from .keypad_retention import KeypadRecordings
+from .models import MyQCamera
 from .runtime import MyQConfigEntry, MyQCoordinatorData
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,7 +49,9 @@ class MyQDataUpdateCoordinator(DataUpdateCoordinator[MyQCoordinatorData]):
             update_interval=DEFAULT_UPDATE_INTERVAL,
         )
         self.client = client
+        self.recordings = KeypadRecordings(hass, entry.entry_id)
         self._pending_commands: dict[str, _PendingCommand] = {}
+        self.cameras: dict[str, MyQCamera] = {}
 
     @callback
     def async_schedule_command_updates(
@@ -89,6 +93,7 @@ class MyQDataUpdateCoordinator(DataUpdateCoordinator[MyQCoordinatorData]):
         except (ClientError, MyQApiError, TimeoutError) as error:
             self._stop_command_updates(pending_at_request)
             raise UpdateFailed("Unable to update MyQ garage doors") from error
+        self.cameras = {camera.serial_number: camera for camera in self.client.unattached_cameras}
         data = {door.serial_number: door for door in doors}
         now = monotonic()
         for serial_number, command in pending_at_request.items():

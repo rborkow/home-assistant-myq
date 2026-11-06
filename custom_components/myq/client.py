@@ -19,7 +19,8 @@ from .const import (
     USER_AGENT,
 )
 from .exceptions import MyQApiError, MyQAuthenticationError
-from .models import GarageDoor, MyQAccount, MyQCamera
+from .keypad_wake import async_wake_keypad
+from .models import GarageDoor, MyQAccount, MyQCamera, MyQDevices
 from .oauth import MyQAuth
 
 type HeadersFn = Callable[[str], dict[str, str]]
@@ -29,10 +30,29 @@ class MyQClient:
     def __init__(self, session: ClientSession, auth: MyQAuth) -> None:
         self._session = session
         self._auth = auth
+        # Cameras attached to no door (e.g. the Video Keypad), from the last door fetch.
+        self.unattached_cameras: tuple[MyQCamera, ...] = ()
 
     async def async_access_token(self) -> str:
         """Return the current OAuth token for Tend camera signaling."""
         return await self._auth.async_access_token()
+
+    async def async_prepare_keypad(self, camera: MyQCamera) -> None:
+        """Prepare only a battery keypad, retaining this client's refresh ownership."""
+        if camera.device_model != "vkp-camera":
+            return
+
+        async def request(method: str, url: str, body: dict[str, object] | None) -> bytes:
+            return await self._async_request(
+                method,
+                url,
+                _tend_headers,
+                json_body=body,
+                allow_redirects=False,
+                max_body_bytes=1_024_000,
+            )
+
+        await async_wake_keypad(camera.tend_device_id, request)
 
     async def async_get_accounts(self) -> tuple[MyQAccount, ...]:
         payload = await self._async_request_json(
@@ -61,11 +81,13 @@ class MyQClient:
         return tuple(accounts)
 
     async def async_get_garage_doors(self) -> tuple[GarageDoor, ...]:
+        """Return all garage doors; also refreshes ``unattached_cameras``."""
         accounts = await self.async_get_accounts()
-        door_groups = await asyncio.gather(
-            *(self._async_get_account_doors(account) for account in accounts)
+        groups = await asyncio.gather(
+            *(self._async_get_account_devices(account) for account in accounts)
         )
-        return tuple(door for group in door_groups for door in group)
+        self.unattached_cameras = tuple(camera for group in groups for camera in group.cameras)
+        return tuple(door for group in groups for door in group.doors)
 
     async def async_open_door(self, door: GarageDoor) -> None:
         await self._async_command(door, "open")
@@ -84,10 +106,10 @@ class MyQClient:
             raise MyQApiError("Tend returned a camera snapshot that is not a JPEG")
         return image
 
-    async def _async_get_account_doors(
+    async def _async_get_account_devices(
         self,
         account: MyQAccount,
-    ) -> tuple[GarageDoor, ...]:
+    ) -> MyQDevices:
         payload = await self._async_request_json(
             "GET",
             f"{DEVICES_BASE_URL}/api/v6.2/Accounts/{account.account_id}/Devices",
@@ -114,7 +136,12 @@ class MyQClient:
                             _online(item.get("state")),
                             model if isinstance(model, str) else None,
                         )
-        return tuple(_garage_door(account.account_id, item, cameras) for item in door_items)
+        doors = tuple(_garage_door(account.account_id, item, cameras) for item in door_items)
+        attached = {door.camera.serial_number for door in doors if door.camera is not None}
+        return MyQDevices(
+            doors=doors,
+            cameras=tuple(camera for serial, camera in cameras.items() if serial not in attached),
+        )
 
     async def _async_command(self, door: GarageDoor, command: str) -> None:
         url = (
@@ -138,17 +165,36 @@ class MyQClient:
         method: str,
         url: str,
         headers: HeadersFn | None = None,
+        *,
+        json_body: dict[str, object] | None = None,
+        allow_redirects: bool | None = None,
+        max_body_bytes: int | None = None,
     ) -> bytes:
         access_token = await self._auth.async_access_token()
-        async with self._session.request(
-            method,
-            url,
-            headers=(headers or _api_headers)(access_token),
-        ) as response:
-            body = await response.read()
+        request_headers = (headers or _api_headers)(access_token)
+        if allow_redirects is None:
+            request = self._session.request(method, url, headers=request_headers)
+        else:
+            request = self._session.request(
+                method,
+                url,
+                headers=request_headers,
+                json=json_body,
+                allow_redirects=allow_redirects,
+            )
+        async with request as response:
+            if max_body_bytes is None:
+                body = await response.read()
+            else:
+                received = bytearray()
+                async for chunk in response.content.iter_chunked(65536):
+                    received.extend(chunk)
+                    if len(received) > max_body_bytes:
+                        raise MyQApiError("MyQ response exceeds size limit")
+                body = bytes(received)
             if response.status in {401, 403}:
                 raise MyQAuthenticationError(f"MyQ returned HTTP {response.status}")
-            if response.status >= 400:
+            if response.status >= (300 if allow_redirects is False else 400):
                 raise MyQApiError(f"MyQ returned HTTP {response.status}")
             return body
 
@@ -239,6 +285,7 @@ def _api_headers(access_token: str) -> dict[str, str]:
 
 def _tend_headers(access_token: str) -> dict[str, str]:
     return {
+        **_api_headers(access_token),
         "AntiCSRF": "AntiCSRF",
         "Authorization": f"Bearer {access_token}",
         "SeedonkLocale": TEND_LOCALE,

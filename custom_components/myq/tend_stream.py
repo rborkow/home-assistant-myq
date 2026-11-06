@@ -5,32 +5,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from aiohttp import ClientError, web
 
 from .exceptions import MyQError
-from .tend_protocol import TendStreamError
+from .tend_protocol import TendStreamError, _nals
 from .tend_session import TendSession
 
 _LOGGER = logging.getLogger(__name__)
 _IDLE_SECONDS = 60
 _FRAME_TIMEOUT = 30
 _SHUTDOWN_TIMEOUT = 0.1
-
-
-def _nals(data: bytes) -> list[tuple[int, bytes]]:
-    starts: list[tuple[int, int]] = []
-    index = data.find(b"\x00\x00\x01")
-    while index != -1:
-        starts.append((index - 1, 4) if index and data[index - 1] == 0 else (index, 3))
-        index = data.find(b"\x00\x00\x01", index + 3)
-    units: list[tuple[int, bytes]] = []
-    for position, (start, prefix) in enumerate(starts):
-        end = starts[position + 1][0] if position + 1 < len(starts) else len(data)
-        if end > start + prefix:
-            units.append((data[start + prefix] & 0x1F, data[start:end]))
-    return units
 
 
 class _Viewer:
@@ -43,7 +30,12 @@ class _Viewer:
         if self.ended:
             return
         if self.frames.full():
-            self.frames.get_nowait()
+            # A missing H.264 reference frame corrupts the rest of its GOP.
+            while not self.frames.empty():
+                self.frames.get_nowait()
+            self.frames.put_nowait(b"")
+            self.ended = True
+            return
         self.frames.put_nowait(frame)
 
     def end(self) -> None:
@@ -54,8 +46,23 @@ class _Viewer:
 class TendLiveStream:
     """Expose one TC camera session to multiple local stream consumers."""
 
-    def __init__(self, opener_serial: str, token_supplier: Callable[[], Awaitable[str]]) -> None:
+    def __init__(
+        self,
+        opener_serial: str,
+        token_supplier: Callable[[], Awaitable[str]],
+        *,
+        lan_only: bool = False,
+        idle_seconds: float = _IDLE_SECONDS,
+        on_snapshot: Callable[[bytes], None] | None = None,
+        prepare_session: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        self._prepare_session = prepare_session
+        self._prepare_task: asyncio.Task[None] | None = None
+        self._idle_seconds = idle_seconds
+        self._on_snapshot = on_snapshot
+        self._snapshot_frame: bytes | None = None
         self._opener_serial = opener_serial
+        self._lan_only = lan_only
         self._token_supplier = token_supplier
         self._runner: web.AppRunner | None = None
         self._url: str | None = None
@@ -70,10 +77,15 @@ class TendLiveStream:
         self._shutdown_task: asyncio.Task[None] | None = None
         self._closed = False
 
+    @property
+    def snapshot_frame(self) -> bytes | None:
+        """Return the latest complete keyframe without opening a camera session."""
+        return self._snapshot_frame
+
     async def source_url(self) -> str:
         """Start a loopback-only server with an unguessable stream path."""
         async with self._server_lock:
-            if self._closed:
+            if bool(self._closed):
                 raise TendStreamError("Camera stream is closed")
             if self._url is None:
                 path = "/" + secrets.token_urlsafe(24) + ".h264"
@@ -96,18 +108,43 @@ class TendLiveStream:
                         await runner.cleanup()
             return self._url
 
+    async def _prepare(self) -> None:
+        assert self._prepare_session is not None
+        await self._prepare_session()
+
     async def _subscribe(self) -> _Viewer:
         async with self._session_lock:
-            if self._closed:
+            if bool(self._closed):
                 raise TendStreamError("Camera stream is closed")
             if self._idle_timer is not None:
                 self._idle_timer.cancel()
                 self._idle_timer = None
             if self._session is None or self._session.ended:
                 await self._close_session()
+                if bool(self._closed):
+                    raise TendStreamError("Camera stream is closed")
+                if self._prepare_session is not None:
+                    self._prepare_task = asyncio.create_task(self._prepare())
+                    try:
+                        await self._prepare_task
+                    except ClientError, MyQError, OSError, TimeoutError:
+                        raise TendStreamError("Camera could not prepare for live video") from None
+                    finally:
+                        self._prepare_task = None
+                if bool(self._closed):
+                    raise TendStreamError("Camera stream is closed")
+                token = await self._token_supplier()
+                if bool(self._closed):
+                    raise TendStreamError("Camera stream is closed")
                 self._session = await TendSession.open(
-                    self._opener_serial, await self._token_supplier(), self._on_frame
+                    self._opener_serial,
+                    token,
+                    self._on_frame,
+                    lan_only=self._lan_only,
                 )
+                if bool(self._closed):
+                    await self._close_session()
+                    raise TendStreamError("Camera stream is closed")
             viewer = _Viewer()
             self._viewers.add(viewer)
             return viewer
@@ -126,6 +163,13 @@ class TendLiveStream:
                 self._sps = nal
             elif kind == 8:
                 self._pps = nal
+        if 5 in types and self._sps is not None and self._pps is not None:
+            snapshot = self._sps if 7 not in types else b""
+            snapshot += (self._pps if 8 not in types else b"") + frame
+            if len(snapshot) <= 3_000_000:
+                self._snapshot_frame = snapshot
+                if self._on_snapshot is not None:
+                    self._on_snapshot(snapshot)
         for viewer in self._viewers:
             if not viewer.ready:
                 if 5 not in types or self._sps is None or self._pps is None:
@@ -136,6 +180,21 @@ class TendLiveStream:
                     viewer.put(self._pps)
                 viewer.ready = True
             viewer.put(frame)
+
+    @asynccontextmanager
+    async def frames(self) -> AsyncIterator[asyncio.Queue[bytes]]:
+        """Lease the same session used by HLS; cancellation releases only this reader."""
+        viewer = await self._subscribe()
+        try:
+            yield viewer.frames
+        finally:
+            self._unsubscribe(viewer)
+
+    def _unsubscribe(self, viewer: _Viewer) -> None:
+        self._viewers.discard(viewer)
+        if not self._viewers and not self._closed:
+            delay = 0 if self._session is not None and self._session.ended else self._idle_seconds
+            self._idle_timer = asyncio.get_running_loop().call_later(delay, self._start_idle_close)
 
     async def _handle_client(self, request: web.Request) -> web.StreamResponse:
         viewer: _Viewer | None = None
@@ -171,14 +230,7 @@ class TendLiveStream:
                 raise web.HTTPServiceUnavailable() from error
         finally:
             if viewer is not None:
-                self._viewers.discard(viewer)
-                if not self._viewers and not self._closed:
-                    delay = _IDLE_SECONDS
-                    if self._session is not None and self._session.ended:
-                        delay = 0
-                    self._idle_timer = asyncio.get_running_loop().call_later(
-                        delay, self._start_idle_close
-                    )
+                self._unsubscribe(viewer)
         return response
 
     def _start_idle_close(self) -> None:
@@ -200,6 +252,8 @@ class TendLiveStream:
         """Finish cleanup even when the caller cancels entity removal."""
         if self._shutdown_task is None:
             self._closed = True
+            if self._prepare_task is not None:
+                self._prepare_task.cancel()
             self._shutdown_task = asyncio.create_task(self._shutdown())
         try:
             await asyncio.shield(self._shutdown_task)

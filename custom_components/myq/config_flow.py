@@ -10,6 +10,7 @@ import voluptuous as vol
 from aiohttp import ClientError, ClientSession, CookieJar
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import (
     async_create_clientsession,
     async_get_clientsession,
@@ -49,6 +50,7 @@ from .exceptions import (
 )
 from .models import OAuthTokens
 from .oauth import MyQAuth
+from .options_flow import MyQOptionsFlow
 from .runtime import MyQConfigData, MyQConfigEntry, tokens_to_data
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +64,11 @@ class LoginAttempt:
 
 
 class MyQConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> MyQOptionsFlow:
+        return MyQOptionsFlow()
+
     VERSION = 1
 
     def __init__(self) -> None:

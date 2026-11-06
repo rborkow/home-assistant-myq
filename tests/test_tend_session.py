@@ -117,3 +117,15 @@ async def test_cancelled_setup_releases_offer(connection: MagicMock, transport: 
     transport.close.assert_called_once()
     connection.command.assert_any_await("stop-video-receive|alias|9|", "alias:mac2", "LOG-test")
     connection.aclose.assert_awaited_once()
+
+
+async def test_session_passes_lan_policy_to_transport(connection: MagicMock) -> None:
+    with (
+        patch("custom_components.myq.tend_session.VideoTransport") as factory,
+        patch("custom_components.myq.tend_session.request_video", new_callable=AsyncMock) as offer,
+    ):
+        offer.return_value = VideoOffer("relay.example", 30000, "0123456789abcdef", "LOG-test")
+        factory.return_value.punch = AsyncMock()
+        session = await TendSession.open("door-1", "token", MagicMock(), lan_only=True)
+        assert factory.call_args.kwargs == {"lan_only": True}
+        await session.close()

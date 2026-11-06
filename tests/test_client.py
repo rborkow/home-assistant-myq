@@ -119,6 +119,43 @@ async def test_client_attaches_cameras_to_garage_doors() -> None:
         ("door-2", MyQCamera("TC-0005-10000002", None)),
         ("door-3", None),
     ]
+    assert client.unattached_cameras == ()
+
+
+async def test_client_reports_cameras_attached_to_no_door() -> None:
+    items = [
+        {
+            "device_family": "garagedoor",
+            "serial_number": "door-1",
+            "state": {"attached_camera_serial_number": "TC-0005-10000001"},
+        },
+        {
+            "device_family": "camera",
+            "serial_number": "TC-0005-10000001",
+            "device_model": "Integrated camera",
+            "state": {"online": True},
+        },
+        {
+            "device_family": "camera",
+            "serial_number": "TC-0007-20000001",
+            "device_model": "vkp-camera",
+            "state": {"online": True},
+        },
+    ]
+    session = FakeSession(
+        request_responses=[
+            FakeResponse("", body='{"accounts":[{"id":"account-1","name":"Home"}]}'),
+            FakeResponse("", body=json.dumps({"items": items})),
+        ]
+    )
+    auth = MagicMock(spec=MyQAuth)
+    auth.async_access_token = AsyncMock(return_value="access")
+    client = MyQClient(cast(ClientSession, session), auth)
+
+    doors = await client.async_get_garage_doors()
+
+    assert [door.serial_number for door in doors] == ["door-1"]
+    assert client.unattached_cameras == (MyQCamera("TC-0007-20000001", True, "vkp-camera"),)
 
 
 async def test_camera_image_uses_tend_snapshot_endpoint() -> None:
@@ -137,6 +174,10 @@ async def test_camera_image_uses_tend_snapshot_endpoint() -> None:
             "devices/10000001/cam/recentImage.jpg",
             {
                 "headers": {
+                    "Accept": "application/json",
+                    "App-Version": "5.243.1.73243",
+                    "BrandId": "1",
+                    "User-Agent": "sdk_gphone_x86/Android 11",
                     "AntiCSRF": "AntiCSRF",
                     "Authorization": "Bearer access",
                     "SeedonkLocale": "en-US",

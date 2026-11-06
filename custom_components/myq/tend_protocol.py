@@ -124,6 +124,7 @@ class TendCamera:
     aes_key: str
     local_ip: str
     opener_serial: str = ""
+    model: str = ""
 
 
 def parse_cameras(properties: dict[str, str]) -> list[TendCamera]:
@@ -145,9 +146,27 @@ def parse_cameras(properties: dict[str, str]) -> list[TendCamera]:
                 raw.get("AES", ""),
                 raw.get("LIP", ""),
                 raw.get("GSN", ""),
+                raw.get("MODEL", ""),
             )
         )
     return cameras
+
+
+def select_camera(cameras: list[TendCamera], opener_serial: str) -> TendCamera | None:
+    """Pick the camera attached to an opener, or the account's one unattached camera.
+
+    Unattached cameras (such as the Video Keypad) carry no opener serial, and the
+    Tend listing has no field that maps back to their MyQ serial, so a Video Keypad
+    model is preferred and otherwise only an unambiguous single candidate is used.
+    """
+    if opener_serial:
+        return next((c for c in cameras if c.opener_serial == opener_serial), None)
+    unattached = [c for c in cameras if not c.opener_serial]
+    keypads = [c for c in unattached if c.model.casefold().startswith("videokeypadcam")]
+    for group in (keypads, unattached):
+        if len(group) == 1:
+            return group[0]
+    return None
 
 
 @dataclass(slots=True)
@@ -227,7 +246,21 @@ def decode_video_payload(payload: bytes, aes_key: str) -> list[bytes]:
         record_length = struct.unpack_from("<I", combined, offset)[0]
         offset += 4
         if record_length == 0 or offset + record_length > len(combined):
-            break
+            return []
         records.append(combined[offset : offset + record_length])
         offset += record_length
-    return records
+    return records if offset == len(combined) else []
+
+
+def _nals(data: bytes) -> list[tuple[int, bytes]]:
+    starts: list[tuple[int, int]] = []
+    index = data.find(b"\x00\x00\x01")
+    while index != -1:
+        starts.append((index - 1, 4) if index and data[index - 1] == 0 else (index, 3))
+        index = data.find(b"\x00\x00\x01", index + 3)
+    units: list[tuple[int, bytes]] = []
+    for position, (start, prefix) in enumerate(starts):
+        end = starts[position + 1][0] if position + 1 < len(starts) else len(data)
+        if end > start + prefix:
+            units.append((data[start + prefix] & 0x1F, data[start:end]))
+    return units
