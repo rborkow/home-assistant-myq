@@ -11,6 +11,7 @@ There is no second keypad receiver, separate OAuth owner, or Android runtime her
 | Bounded RTP assembly and IDR recovery | [#13](https://github.com/bvdcode/home-assistant-myq/pull/13) | Draft; live hardware compatibility pending | 259 tests, Ruff, mypy |
 | Passive persistent keypad preview | [#14](https://github.com/bvdcode/home-assistant-myq/pull/14) | Draft; depends on #11 | 261 tests, Ruff, mypy |
 | Bounded recording and owned-file retention | [#15](https://github.com/bvdcode/home-assistant-myq/pull/15) | Draft; depends on #11 | 273 tests, Ruff, mypy |
+| On-demand keypad wake | [#16](https://github.com/bvdcode/home-assistant-myq/pull/16) | Draft; depends on #11 | 268 tests, Ruff, mypy |
 
 PRs #14 and #15 preserve #11 unchanged and link their follow-up-only diffs. They
 should be rebased after #11 lands. The combined branch has 308 passing tests.
@@ -64,7 +65,10 @@ module hash matches the committed candidate; this is not full HA/HLS/MP4 validat
 Full local Hassfest against Home Assistant 2026.7.4 found a missing optional FFmpeg
 dependency declaration. That is fixed in the preview, recording, and combined
 branches. The pre-wake combined branch passed 308 tests and hosted CI/Hassfest/HACS;
-the wake candidate adds lifecycle and bounded-response coverage (322 tests).
+the wake candidate adds lifecycle and bounded-response coverage (323 tests).
+The final extra regression prevents starting a wake if unload occurs while a
+reconnect is cleaning up the previous session; the wake helper is unchanged from
+the successful hardware test.
 Private storage migration and dashboard changes remain staged, not applied.
 
 ## Before replacing the installed fork
