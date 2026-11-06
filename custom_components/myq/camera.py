@@ -167,9 +167,11 @@ class _MyQCameraMixin(Camera):
     async def async_will_remove_from_hass(self) -> None:
         """Close the source before waiting for the stream reader to stop."""
         try:
-            await self.async_cancel_keypad_recording()
-            if self._live_stream is not None:
-                await self._live_stream.close()
+            try:
+                await self.async_cancel_keypad_recording()
+            finally:
+                if self._live_stream is not None:
+                    await self._live_stream.close()
         finally:
             try:
                 if self._preview is not None:

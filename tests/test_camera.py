@@ -384,3 +384,36 @@ async def test_recording_rejects_non_keypad_without_opening_stream() -> None:
         with pytest.raises(HomeAssistantError, match="Video Keypad"):
             await entity.async_record_keypad(5)
         source.assert_not_awaited()
+
+
+async def test_removal_closes_video_when_cancelled_waiting_for_recording_cleanup() -> None:
+    entity, _ = _entity(DOOR)
+    live = MagicMock(close=AsyncMock())
+    entity._live_stream = live
+    ha_stream = MagicMock(stop=AsyncMock())
+    cleanup_started = asyncio.Event()
+
+    async def recording() -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleanup_started.set()
+            await asyncio.Event().wait()
+
+    record_task = asyncio.create_task(recording())
+    entity._record_task = record_task
+    await asyncio.sleep(0)
+    with patch.object(entity, "stream", ha_stream):
+        removal = asyncio.create_task(entity.async_will_remove_from_hass())
+        try:
+            await asyncio.wait_for(cleanup_started.wait(), 2)
+            removal.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await removal
+        finally:
+            record_task.cancel()
+            await asyncio.gather(record_task, return_exceptions=True)
+        live.close.assert_awaited_once()
+        ha_stream.stop.assert_awaited_once()
+        assert cast(object, entity._live_stream) is None
+        assert entity.stream is None
