@@ -49,7 +49,9 @@ The initial installed-canary checks passed:
   validation took approximately 127 seconds.
 
 Recording cancellation also passed: cancellation at approximately 20 seconds
-preserved both HLS readers, which decoded successfully. No cancelled clip or
+preserved both HLS readers, which decoded successfully. The cancel request returned
+HTTP 200; the intentionally cancelled, blocking record request returned HTTP 502
+through the HA proxy, an outcome allowed by the cancellation validator. No cancelled clip or
 partial file remained, existing clips were unchanged, and both LAN channels and
 the control connection closed at idle. The preserved cancel and explicit
 power-refresh buttons returned HTTP 200; the subsequent power sample reported
