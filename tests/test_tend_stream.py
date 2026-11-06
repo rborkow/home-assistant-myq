@@ -394,3 +394,31 @@ async def test_failed_preparation_is_sanitized_and_does_not_open_video(
         open_session.assert_not_awaited()
     finally:
         await stream.close()
+
+
+async def test_close_during_old_session_cleanup_prevents_reconnect_wake(
+    open_session: AsyncMock,
+) -> None:
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+
+    async def cleanup() -> None:
+        cleanup_started.set()
+        await release_cleanup.wait()
+
+    prepare = AsyncMock()
+    token = AsyncMock(return_value="token")
+    stream = TendLiveStream("", token, prepare_session=prepare)
+    stream._session = MagicMock(ended=True, close=AsyncMock(side_effect=cleanup))
+    subscribe = asyncio.create_task(stream._subscribe())
+    await cleanup_started.wait()
+    closing = asyncio.create_task(stream.close())
+    await asyncio.sleep(0)
+    assert stream._closed
+    release_cleanup.set()
+    with pytest.raises(TendStreamError, match="closed"):
+        await asyncio.wait_for(subscribe, 1)
+    await asyncio.wait_for(closing, 1)
+    prepare.assert_not_awaited()
+    token.assert_not_awaited()
+    open_session.assert_not_awaited()

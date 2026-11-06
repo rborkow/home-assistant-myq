@@ -121,6 +121,8 @@ class TendLiveStream:
                 self._idle_timer = None
             if self._session is None or self._session.ended:
                 await self._close_session()
+                if bool(self._closed):
+                    raise TendStreamError("Camera stream is closed")
                 if self._prepare_session is not None:
                     self._prepare_task = asyncio.create_task(self._prepare())
                     try:
