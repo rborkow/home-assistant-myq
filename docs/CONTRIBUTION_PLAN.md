@@ -148,3 +148,19 @@ The current installation remains experimental: one keypad/Yellow was tested,
 startup negotiation sometimes needs a retry, and extended battery life has not
 been measured. [LAN documentation](LAN_VIDEO.md) distinguishes local media from
 cloud control and records keyframe recovery and retransmission limitations.
+
+## Contributions opened — 2026-11-06
+
+The convergence work is now submitted upstream:
+
+- [#12: explicit LAN-only live video](https://github.com/bvdcode/home-assistant-myq/pull/12), ready for review.
+- [#13: bounded RTP assembly and recovery](https://github.com/bvdcode/home-assistant-myq/pull/13), draft pending live compatibility validation.
+- [#14: passive keypad previews](https://github.com/bvdcode/home-assistant-myq/pull/14), draft follow-up to #11.
+- [#15: local recording and owned-file retention](https://github.com/bvdcode/home-assistant-myq/pull/15), draft follow-up to #11.
+
+The [combined upstream candidate](https://github.com/rborkow/home-assistant-myq/tree/converge/upstream-camera)
+uses the existing upstream asynchronous transport rather than this fork's separate
+receiver. Its `docs/CONVERGENCE.md` records tests, limitations, and the migration
+requirements. Do not install it over the current fork without preserving camera
+entity IDs, explicit LAN-only settings, cached preview, and recording ownership.
+The installed Yellow source remains unchanged during contribution preparation.
