@@ -78,11 +78,13 @@ class TendLiveStream:
         *,
         session_factory: SessionFactory | None = None,
         idle_seconds: float | None = None,
+        on_consumers: Callable[[int], None] | None = None,
     ) -> None:
         self._opener_serial = opener_serial
         self._token_supplier = token_supplier
         self._session_factory = session_factory
         self._idle_seconds = idle_seconds
+        self._on_consumers = on_consumers
         self._runner: web.AppRunner | None = None
         self._url: str | None = None
         self._server_lock = asyncio.Lock()
@@ -141,6 +143,8 @@ class TendLiveStream:
                     self._session = await self._session_factory(token, self._on_frame)
             viewer = _Viewer()
             self._viewers.add(viewer)
+            if self._on_consumers is not None:
+                self._on_consumers(len(self._viewers))
             return viewer
 
     def _on_frame(self, frame: bytes) -> None:
@@ -220,6 +224,8 @@ class TendLiveStream:
 
     def _unsubscribe(self, viewer: _Viewer) -> None:
         self._viewers.discard(viewer)
+        if self._on_consumers is not None:
+            self._on_consumers(len(self._viewers))
         if not self._viewers and not self._closed:
             delay = _IDLE_SECONDS if self._idle_seconds is None else self._idle_seconds
             if self._session is not None and self._session.ended:

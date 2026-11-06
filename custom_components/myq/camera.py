@@ -41,8 +41,13 @@ async def async_setup_entry(
     )
     entity_platform.async_get_current_platform().async_register_entity_service(
         "record_keypad",
-        {vol.Optional("duration", default=30): vol.All(vol.Coerce(int), vol.Range(min=5, max=300))},
+        {vol.Optional("duration"): vol.All(vol.Coerce(int), vol.Range(min=5, max=300))},
         "async_record_keypad",
+    )
+    entity_platform.async_get_current_platform().async_register_entity_service(
+        "cancel_keypad_recording",
+        {},
+        "async_cancel_keypad_recording",
     )
 
 
@@ -54,6 +59,9 @@ class MyQGarageCamera(MyQEntity, Camera):
 
     async def async_record_keypad(self, duration: int = 30) -> None:
         """Reject the keypad-only service clearly when targeting another camera."""
+        raise HomeAssistantError("Select a Video Keypad camera for this recording action")
+
+    async def async_cancel_keypad_recording(self) -> None:
         raise HomeAssistantError("Select a Video Keypad camera for this recording action")
 
     def __init__(self, coordinator: MyQDataUpdateCoordinator, door: GarageDoor) -> None:

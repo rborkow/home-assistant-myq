@@ -15,19 +15,19 @@ and remain closed after a cached snapshot request.
 - Bounded recording belongs with the same session owner. Successful recordings
   include received-media duration and elapsed duration; interruptions can extend
   elapsed time. Validated completion and cancellation events work with HA automations.
-- Battery percentage, the cloud-reported power state and sample time belong in a
-  future native diagnostic cache. Sensor reads must only read that cache, expire
-  stale values, and never initiate a wake or a cloud call. Reuse metadata obtained
+- Battery percentage, the cloud-reported power state and sample time are implemented in a
+  persistent native diagnostic cache. Sensor reads only read that cache, expire
+  samples after 12 hours, and never initiate a wake or a cloud call. Reuse metadata obtained
   during explicit operations where possible. Offer an explicit status-refresh
   action if needed rather than adding a frequent power polling loop.
 - Preserve a distinction between current session health and historical failures.
   Expose safe stage/type metadata, never raw exception messages, identities or tokens.
 
-The current fork does not yet create native battery/power sensors. The original
-bridge's cached sensors remain a useful independent companion during validation.
-They read local cached state and expire battery/power samples after 12 hours.
-Reading those sensors does not call the cloud or wake the camera. Their explicit
-refresh action does read the cloud and should not be confused with passive sampling.
+The native Refresh battery and power button is an explicit cloud read. Repeated
+requests within one minute reuse the sample. A local timer expires stale entities
+even when account polling is disabled; it makes no cloud request. Live startup
+also captures power reports from requests the session already needs. Saved preview
+frames and power samples survive restart without a camera wake.
 
 ## What stays in companion tooling
 

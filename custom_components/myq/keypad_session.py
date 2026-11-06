@@ -17,6 +17,7 @@ from uuid import uuid4
 from .client import _tend_headers
 from .const import TEND_API_BASE_URL, TEND_PARTNER_ID
 from .keypad_protocol import Session, login_routed, relay_access_units
+from .keypad_state import KeypadPower
 from .models import MyQCamera
 from .tend_protocol import TendStreamError
 
@@ -29,9 +30,18 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class KeypadSession:
     """Run blocking legacy TLS I/O outside HA's event loop; never store credentials."""
 
-    def __init__(self, on_frame: Callable[[bytes], None]) -> None:
+    def __init__(
+        self,
+        on_frame: Callable[[bytes], None],
+        on_power: Callable[[KeypadPower], None] | None = None,
+        on_phase: Callable[[str], None] | None = None,
+        on_finished: Callable[[str | None], None] | None = None,
+    ) -> None:
         self._loop = asyncio.get_running_loop()
         self._on_frame = on_frame
+        self._on_power = on_power
+        self._on_phase = on_phase
+        self._on_finished = on_finished
         self._stop = threading.Event()
         self._ready: asyncio.Future[None] = self._loop.create_future()
         self._worker: asyncio.Task[None] | None = None
@@ -41,9 +51,16 @@ class KeypadSession:
 
     @classmethod
     async def open(
-        cls, camera: MyQCamera, token: str, on_frame: Callable[[bytes], None]
+        cls,
+        camera: MyQCamera,
+        token: str,
+        on_frame: Callable[[bytes], None],
+        *,
+        on_power: Callable[[KeypadPower], None] | None = None,
+        on_phase: Callable[[str], None] | None = None,
+        on_finished: Callable[[str | None], None] | None = None,
     ) -> KeypadSession:
-        session = cls(on_frame)
+        session = cls(on_frame, on_power, on_phase, on_finished)
         session._worker = asyncio.create_task(asyncio.to_thread(session._run, camera, token))
         try:
             async with asyncio.timeout(100):
@@ -61,7 +78,22 @@ class KeypadSession:
         self.ended = True
         if not self._ready.done():
             self._ready.set_exception(TendStreamError(error or "Keypad session closed"))
+        if self._on_finished is not None:
+            self._on_finished(error)
         self._on_frame(b"")
+
+    def _phase(self, stage: str) -> None:
+        if self._on_phase is not None:
+            self._loop.call_soon_threadsafe(self._on_phase, stage)
+
+    def _publish_power(self, device: object) -> None:
+        if self._on_power is None or not isinstance(device, dict):
+            return
+        try:
+            power = KeypadPower.from_device(device)
+        except ValueError:
+            return
+        self._loop.call_soon_threadsafe(self._on_power, power)
 
     def _wake(self, camera: MyQCamera, token: str) -> None:
         if self._stop.is_set():
@@ -87,6 +119,7 @@ class KeypadSession:
                 urllib.request.Request(f"{endpoint}?{query}", headers=headers), timeout=10
             ) as response:
                 device = json.loads(response.read(1_024_000))
+            self._publish_power(device)
             if device.get("status", {}).get("pwr", {}).get("sleepMode") == "FP":
                 return
             self._stop.wait(1)
@@ -102,6 +135,7 @@ class KeypadSession:
         )
         with urllib.request.build_opener(_NoRedirect).open(request, timeout=15) as response:
             device = json.loads(response.read(1_024_000))
+        self._publish_power(device)
         alias = device.get("alias")
         if not isinstance(alias, str) or ":" not in alias or any(c in alias for c in "\r\n|"):
             raise TendStreamError("Video cloud returned no valid keypad alias")
@@ -114,6 +148,7 @@ class KeypadSession:
         correlation = str(uuid4())
         error = None
         stage = "identity"
+        self._phase(stage)
         try:
             if self._stop.is_set():
                 return
@@ -121,6 +156,7 @@ class KeypadSession:
             if self._stop.is_set():
                 return
             stage = "login"
+            self._phase(stage)
             control, props = login_routed(
                 {
                     "m_serverhost": "server.seedonk.com",
@@ -138,6 +174,7 @@ class KeypadSession:
             alias = props["alias"]
             destination = keypad_destination(props, camera, resolved_alias)
             stage = "relay_connect"
+            self._phase(stage)
             media = Session(
                 props["video-channel-host"],
                 int(props["video-channel-port-tls"]),
@@ -151,10 +188,12 @@ class KeypadSession:
             media.sender, media.recipient = control.sender, control.recipient
             media.send(508, service=122)
             stage = "wake"
+            self._phase(stage)
             self._wake(camera, token)
             if self._stop.is_set():
                 return
             stage = "negotiate"
+            self._phase(stage)
             control.command(f"require-video-send|{alias}|0|", destination, correlation)
             requested = True
             deadline = time.monotonic() + 20
@@ -171,6 +210,7 @@ class KeypadSession:
                 raise TendStreamError("Keypad video negotiation timed out")
             media.send(508, service=122)
             stage = "relay_initialize"
+            self._phase(stage)
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
                 media.socket.settimeout(max(0.1, deadline - time.monotonic()))
@@ -183,6 +223,7 @@ class KeypadSession:
                 raise TendStreamError("Keypad relay initialization timed out")
             control.command(f"start-video-receive|{alias}|0|", destination, correlation)
             stage = "streaming"
+            self._phase(stage)
             self._loop.call_soon_threadsafe(self._started)
             next_keepalive = time.monotonic() + 30
             last_frame = time.monotonic()
@@ -216,7 +257,8 @@ class KeypadSession:
                             quality_set = True
         except Exception as exc:
             # Network exceptions can include URLs or account data. Never expose their messages.
-            error = f"Keypad {stage} failed ({type(exc).__name__})"
+            if not self._stop.is_set():
+                error = f"Keypad {stage} failed ({type(exc).__name__})"
         finally:
             if control is not None:
                 with contextlib.suppress(Exception):

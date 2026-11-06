@@ -1,3 +1,10 @@
+cancel_keypad_recording:
+  name: Cancel Video Keypad recording
+  description: Cancel this keypad's active recording and remove its partial file. Other viewers remain connected.
+  target:
+    entity:
+      domain: camera
+      integration: myq
 record_keypad:
   name: Record Video Keypad
   description: Record received video and validate the clip before making it available in local media.

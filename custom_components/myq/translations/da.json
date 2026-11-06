@@ -148,5 +148,18 @@
     "camera_image_failed": {
       "message": "Billedet fra MyQ-kameraet kunne ikke hentes."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Keypad recording settings",
+        "description": "Only recordings created after managed retention was enabled are eligible for deletion. Existing clips are preserved. Retention 0 keeps managed clips indefinitely. Longer recordings and frequent triggers use more battery.",
+        "data": {
+          "recording_duration": "Default recording duration (seconds)",
+          "recording_cooldown": "Minimum time between recording starts (seconds)",
+          "retention_days": "Delete managed clips after (days; 0 disables deletion)"
+        }
+      }
+    }
   }
 }

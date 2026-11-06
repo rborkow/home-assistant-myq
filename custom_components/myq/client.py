@@ -19,6 +19,7 @@ from .const import (
     USER_AGENT,
 )
 from .exceptions import MyQApiError, MyQAuthenticationError
+from .keypad_state import KeypadPower
 from .models import GarageDoor, MyQAccount, MyQCamera, VideoKeypad
 from .oauth import MyQAuth
 
@@ -39,6 +40,18 @@ class MyQClient:
     async def async_access_token(self) -> str:
         """Return the current OAuth token for Tend camera signaling."""
         return await self._auth.async_access_token()
+
+    async def async_get_keypad_power(self, camera: MyQCamera) -> KeypadPower:
+        """Explicit status read only; never call the wake endpoint."""
+        if not camera.tend_device_id.isdecimal():
+            raise MyQApiError("Invalid keypad video identifier")
+        device = await self._async_request_json(
+            "GET", f"{TEND_API_BASE_URL}/devices/{camera.tend_device_id}", _tend_headers
+        )
+        try:
+            return KeypadPower.from_device(device)
+        except ValueError as error:
+            raise MyQApiError("Keypad returned no power report") from error
 
     async def async_get_accounts(self) -> tuple[MyQAccount, ...]:
         payload = await self._async_request_json(
@@ -145,8 +158,13 @@ class MyQClient:
         )
         await self._async_request("PUT", url)
 
-    async def _async_request_json(self, method: str, url: str) -> dict[str, object]:
-        body = await self._async_request(method, url)
+    async def _async_request_json(
+        self,
+        method: str,
+        url: str,
+        headers: HeadersFn | None = None,
+    ) -> dict[str, object]:
+        body = await self._async_request(method, url, headers)
         try:
             parsed = json.loads(body)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:

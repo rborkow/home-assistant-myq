@@ -53,7 +53,8 @@ PR independently testable; do not force the conceptual split into unusable relea
    even after a dashboard closes. Do not claim battery-safe dashboard behavior
    solely from the stream server's lease tests.
 6. Request cached snapshots while idle. Confirm no wake, token request or new
-   relay session. Document that the image can be old and is absent after restart
+   relay session. Persist the last keyframe at session end and expose its timestamp;
+   document that the image can be old and is absent before the first live session
    until live video supplies a keyframe.
 7. Verify a live recording's requested media duration, frame count and full decode
    on the Yellow. Verify failure/cancellation removes partial files. The current
@@ -101,3 +102,13 @@ instead of shipping captured credentials or a parallel token-bootstrap mechanism
 Retain a long-lived fork only if the upstream project declines the architecture
 or cannot accommodate keypad support. Consider a separate recorder component only
 if storage/retention requirements grow beyond a small bounded recording service.
+
+## Daily-use additions in this fork
+
+Keep these reviewable separately from the video protocol: cache-only keypad power
+and session diagnostics; explicit refresh/record/cancel controls; persistent cached
+previews; configurable recording defaults and cooldown; and ownership-ledger
+retention that preserves existing recordings. Retention tests cover older unmanaged
+files, fresh files, replaced files, symlinks, disabled cleanup and reload. The
+options flow changes recording policy without touching authorization. The supplied
+dashboard is deployment guidance, not an automatically installed integration UI.

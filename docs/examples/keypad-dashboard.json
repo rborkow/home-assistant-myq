@@ -1,0 +1,98 @@
+{
+  "title": "Keypad camera",
+  "views": [
+    {
+      "title": "Keypad",
+      "path": "keypad",
+      "icon": "mdi:camera",
+      "cards": [
+        {
+          "type": "picture-entity",
+          "entity": "camera.keypad_camera",
+          "camera_view": "auto",
+          "show_name": false,
+          "show_state": false,
+          "tap_action": {
+            "action": "more-info"
+          }
+        },
+        {
+          "type": "markdown",
+          "content": "Tap the preview for live video. The preview is cached; its age is shown below. Live viewing and recording use battery."
+        },
+        {
+          "type": "horizontal-stack",
+          "cards": [
+            {
+              "type": "button",
+              "entity": "button.keypad_record_clip",
+              "name": "Record clip",
+              "icon": "mdi:record-circle",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "button.press",
+                "target": {
+                  "entity_id": "button.keypad_record_clip"
+                }
+              }
+            },
+            {
+              "type": "button",
+              "entity": "button.keypad_cancel_recording",
+              "name": "Stop recording",
+              "icon": "mdi:stop",
+              "tap_action": {
+                "action": "perform-action",
+                "perform_action": "button.press",
+                "target": {
+                  "entity_id": "button.keypad_cancel_recording"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "entities",
+          "title": "Status",
+          "show_header_toggle": false,
+          "entities": [
+            "sensor.keypad_recording_status",
+            "sensor.keypad_last_recording",
+            "sensor.keypad_snapshot_time",
+            "sensor.keypad_battery",
+            "sensor.keypad_battery_sample_time",
+            "sensor.keypad_reported_power_state",
+            "button.keypad_refresh_battery_and_power"
+          ]
+        },
+        {
+          "type": "button",
+          "name": "Browse recordings",
+          "icon": "mdi:folder-play",
+          "tap_action": {
+            "action": "navigate",
+            "navigation_path": "/media-browser/browser"
+          }
+        },
+        {
+          "type": "markdown",
+          "content": "Clips: **Media \u2192 Local media \u2192 myq-keypad**. New managed clips are kept for 30 days. Existing clips are preserved. Recording defaults are under **Settings \u2192 Devices & services \u2192 myQ \u2192 Configure**."
+        },
+        {
+          "type": "entities",
+          "title": "Diagnostics",
+          "show_header_toggle": false,
+          "entities": [
+            "binary_sensor.keypad_streaming",
+            "binary_sensor.keypad_session_problem",
+            "sensor.keypad_session_state",
+            "sensor.keypad_active_consumers",
+            "sensor.keypad_last_startup_time",
+            "sensor.keypad_session_errors",
+            "sensor.keypad_credential_renewals"
+          ]
+        }
+      ]
+    }
+  ]
+}

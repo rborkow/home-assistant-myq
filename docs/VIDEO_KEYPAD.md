@@ -16,17 +16,18 @@ experimental branch with live playback and recording verified on an HA Yellow.
   Multiple viewers share a session. Keypad sessions use a 20-second idle grace.
 - Cache an IDR for snapshots. Snapshot requests never start a session or read the
   cloud; before the first live keyframe, no snapshot is available. The cache is
-  currently in memory, so restarting HA clears it.
+  persisted at session end and restored after restart (daily-use build).
 - Preserve the existing TC-camera path and account token persistence.
 - Provide `myq.record_keypad` for 5–300 seconds of received video, sharing the
   live session. Clips are published in local media only after duration, frame
   count and full-decode validation. Failed or cancelled jobs remove partial files.
   Recording refuses to start below 1 GB free space or at 2 GB of stored clips;
-  these are admission checks, not a hard filesystem quota or retention policy.
+  these are admission checks, not a hard filesystem quota. New managed clips have
+  configurable retention; existing recordings are never enrolled automatically.
 
 ## Evidence, November 5, 2026
 
-Local checks: 264 tests pass, along with strict mypy, Ruff lint and formatting.
+Local checks: 280 tests pass, along with strict mypy, Ruff lint and formatting.
 A real account inventory returned two garage doors and one Video Keypad.
 The new session implementation captured 110 H.264 frames at 1152x864, with the
 first frame after 7.21 seconds. FFmpeg decoded the entire capture without error.
@@ -111,8 +112,8 @@ not necessary for users who can complete normal browser sign-in.
 2. Real media-connection interruption recovery and longer shared-viewer recording
    are verified above, in addition to the synthetic recovery/cancellation tests.
 3. Battery/health scope is recorded in [the battery policy](BATTERY_POLICY.md).
-   Native power sensors remain follow-up work; the existing bridge's cached
-   diagnostics can remain available independently of this camera integration.
+   Native power sensors now use a persisted cache with explicit refresh; the
+   original bridge is no longer needed for diagnostics.
 4. Deployment, rollback and contribution documents are available in this directory.
 
 Native motion delivery and entitled cloud-clip download remain unverified
@@ -128,3 +129,19 @@ research. Neither is advertised as an implemented feature in this fork.
 
 No upstream proposal or pull request has been submitted. The fork is the place
 to validate the complete combination before asking maintainers to review it.
+
+## Native daily-use cutover (2026-11-06)
+
+Version `0.3.0.dev3` replaces the running bridge with native controls and diagnostics.
+All 51 deployed source files match the fork. The default Record clip button produced
+30 seconds / 600 frames of valid video in 41.77 seconds; cancellation left no partial
+files. Existing clips retained their sizes and modification times. The ownership
+ledger initially contained only that newly completed clip. A cached JPEG survived
+HA restart and reload byte-for-byte; its timestamp and cached power sample were
+preserved, with streaming off.
+
+The legacy bridge and generic camera config entries are disabled. The old add-on
+is stopped, boot is manual, and watchdog is off; installation and separate credentials
+remain for rollback. With the bridge stopped, a native five-second recording produced
+100 fully decoded frames in 14.72 seconds. See the [sanitized daily-use evidence](validation/ha-native-daily-use.json).
+A cached-preview dashboard example is in [examples/keypad-dashboard.json](examples/keypad-dashboard.json).

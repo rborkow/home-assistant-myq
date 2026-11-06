@@ -9,6 +9,7 @@ from homeassistant.helpers.typing import StateType
 
 from .coordinator import MyQDataUpdateCoordinator
 from .entity import MyQEntity
+from .keypad_sensor import KEYPAD_SENSORS, MyQKeypadSensor
 from .models import GarageDoor
 from .runtime import MyQConfigEntry
 
@@ -70,6 +71,11 @@ async def async_setup_entry(
         for door in coordinator.data.values()
         for description in SENSOR_DESCRIPTIONS
         if description.exists_fn(door)
+    )
+    async_add_entities(
+        MyQKeypadSensor(coordinator, keypad, key)
+        for keypad in coordinator.client.keypads
+        for key in KEYPAD_SENSORS
     )
 
 
