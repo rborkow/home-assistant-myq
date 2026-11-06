@@ -42,9 +42,10 @@ or at 2 GB of stored MP4s; this is an admission check, not a hard quota.
 ## Yellow validation and rollback
 
 The deployment has created the standalone camera, produced live HLS video and
-validated local recordings, survived integration reload and HA restart, and cleaned
-up a recording cancelled by reload. See [evidence](VIDEO_KEYPAD.md) for measured
-results and remaining checks. Native motion delivery and cloud-clip retrieval
+validated local recordings, survived integration reload and HA restart, recovered
+from a targeted media-socket shutdown, shared one relay session between two HLS
+viewers and a 60-second recording, and cleaned up a recording cancelled by reload.
+See [evidence](VIDEO_KEYPAD.md) for measured results and follow-up work. Native motion delivery and cloud-clip retrieval
 remain unverified.
 
 To return to the original bridge, disable the new MyQ config entry in Devices &

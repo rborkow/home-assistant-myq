@@ -5,6 +5,14 @@ pull requests. Keep the upstream account setup, token refresh and coordinator as
 the single source of authorization. Keep the existing TC camera path working.
 No upstream proposal or pull request has been submitted.
 
+The working-fork validation milestone is complete on the test Yellow/keypad:
+fresh browser authorization, live HLS, validated recording, shared viewers,
+idle cleanup, cancellation, reload/restart persistence and recovery after a real
+media-socket interruption have evidence in [the validation report](VIDEO_KEYPAD.md).
+This is bounded validation of one device/account, not a claim of broad hardware
+coverage or measured battery life. The following sequence is the contribution
+plan; no upstream acceptance is assumed.
+
 The fork also offers an explicit advanced authorization transfer for validation
 and migrations from a stopped client. Keep that separate from the core keypad
 PRs: most users should use the upstream browser flow. Transferred tokens are
@@ -55,6 +63,12 @@ PR independently testable; do not force the conceptual split into unusable relea
    orphan worker, encoder or stream listener, and that a later live request works.
 9. Save sanitized evidence and deployment/rollback steps. Publish the tested fork
    branch with a clear experimental status before proposing upstream changes.
+
+The current milestone has exercised these checks with the qualifications in the
+report: low-free-space refusal is covered by local tests, while quota refusal was
+also exercised in an isolated directory inside the Yellow's HA container. The live
+failure test shut down one verified media socket; it did not simulate every outage
+mode. The two-viewer recording test lasted about two minutes including idle cleanup.
 
 ## Battery and recording policy
 

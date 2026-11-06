@@ -1,0 +1,93 @@
+{
+  "requested_recording_seconds": 60,
+  "reader_requested_seconds": [
+    20,
+    65
+  ],
+  "first_viewer_exit_seconds": 32.21,
+  "long_viewer_still_running": true,
+  "recording_still_running": true,
+  "recording": {
+    "http_status": 200,
+    "finished_seconds": 78.92
+  },
+  "reader_exit_codes": [
+    0,
+    0
+  ],
+  "max_media_connections": 1,
+  "max_control_connections": 1,
+  "consumer_phase_seconds": 79.44,
+  "recorded_clip": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "width": 1152,
+          "height": 864,
+          "nb_read_frames": "1200"
+        }
+      ],
+      "format": {
+        "duration": "60.000000"
+      }
+    },
+    "full_decode_passed": true,
+    "bytes": 7981293
+  },
+  "viewers": [
+    {
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1152,
+            "height": 864,
+            "nb_read_frames": "400"
+          }
+        ],
+        "format": {
+          "duration": "20.031538"
+        }
+      },
+      "full_decode_passed": true,
+      "bytes": 2675352
+    },
+    {
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1152,
+            "height": 864,
+            "nb_read_frames": "1300"
+          }
+        ],
+        "format": {
+          "duration": "65.040440"
+        }
+      },
+      "full_decode_passed": true,
+      "bytes": 8657827
+    }
+  ],
+  "partial_files_after": 0,
+  "connections_after_idle": {
+    "media": 0,
+    "control": 0
+  },
+  "total_wall_seconds": 123.3,
+  "passed": true,
+  "source_commit": "405da54221bcfcfa49243d9ae47e21a71b8c0e10",
+  "validation_date": "2026-11-05",
+  "deployed_source_verification": {
+    "files_checked": 45,
+    "mismatches": 0
+  }
+}

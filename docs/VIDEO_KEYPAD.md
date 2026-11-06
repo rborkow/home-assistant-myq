@@ -76,12 +76,24 @@ Subsequent live HA validation:
 - A temporary HA automation received both actual `completed` and `cancelled`
   recording events and emitted the expected test events. Cancellation was triggered
   by integration reload. The test automation was deleted successfully afterward.
-- A targeted live socket-interruption attempt verified that the selected media
-  socket belonged to HA. The host's socket-close tool exited successfully but
-  left that connection established (one selected before and after, zero reported
-  closed). The ten-second recording completed, but this is **not** evidence of
-  live network-failure recovery. Further attempts were stopped to avoid needless
-  camera activity. Offline disconnect recovery is verified separately above.
+- Real transport-interruption recovery is now verified. The Yellow kernel lacks
+  `CONFIG_INET_DIAG_DESTROY`, explaining why earlier `ss --kill` attempts silently
+  left connections open. A disposable loopback test first verified a replacement
+  method using existing container permissions. The live test then reverified the
+  HA process owner, socket inode and both endpoints before shutting down exactly
+  its media socket. HA opened a new media connection and completed the requested
+  20-second recording in 40.29 seconds overall. Independent validation found 400
+  decoded frames, duration 20.000 seconds, no partial files and zero relay
+  connections after idle. No firewall, permission or camera settings were changed.
+  [Sanitized transport evidence](validation/ha-transport-recovery.json).
+- A longer concurrency test ran two actual HA HLS readers (20 and 65 seconds)
+  alongside a 60-second recording. After the first viewer exited, the other
+  viewer and recorder remained active. Sampling throughout the consumer phase
+  observed at most one control and one media connection. The recording contained
+  1200 frames and exactly 60.000 seconds; the viewer captures contained 400 and
+  1300 frames. All three files passed full decode. No partial files or established
+  relay connections remained at the end of the 123.3-second test.
+  [Sanitized concurrency evidence](validation/ha-concurrent.json).
 
 Fresh browser authorization subsequently completed through HA's native flow.
 The user signed in directly with myQ; HA exchanged the callback, validated device
@@ -93,11 +105,11 @@ The migration action is an advanced fork feature; its new strings currently use
 English fallback text in other locales. Stop the old token owner first. It is
 not necessary for users who can complete normal browser sign-in.
 
-## Remaining acceptance checks
+## Validated milestone and follow-up work
 
 1. Fresh browser authorization is verified, including a subsequent live recording.
-2. Finish forced network failure recovery and longer shared-viewer checks.
-   Shared-consumer and cancellation behavior also have synthetic tests.
+2. Real media-connection interruption recovery and longer shared-viewer recording
+   are verified above, in addition to the synthetic recovery/cancellation tests.
 3. Battery/health scope is recorded in [the battery policy](BATTERY_POLICY.md).
    Native power sensors remain follow-up work; the existing bridge's cached
    diagnostics can remain available independently of this camera integration.

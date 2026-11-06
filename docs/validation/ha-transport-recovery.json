@@ -1,0 +1,38 @@
+{
+  "requested_media_seconds": 20,
+  "kernel_socket_destroy_supported": false,
+  "interruption_method": "inode-verified pidfd socket shutdown",
+  "socket_shutdown": true,
+  "inode_reverified": true,
+  "endpoints_reverified": true,
+  "ha_owner_verified": true,
+  "interruption_after_seconds": 14.29,
+  "recording_http_status": 200,
+  "elapsed_seconds": 40.29,
+  "new_media_socket_observed": true,
+  "probe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_name": "h264",
+        "width": 1152,
+        "height": 864,
+        "nb_read_frames": "400"
+      }
+    ],
+    "format": {
+      "duration": "20.000000"
+    }
+  },
+  "full_decode_passed": true,
+  "bytes": 2722632,
+  "partial_files_after": 0,
+  "relay_connections_after_idle": 0,
+  "source_commit": "405da54221bcfcfa49243d9ae47e21a71b8c0e10",
+  "validation_date": "2026-11-05",
+  "deployed_source_verification": {
+    "files_checked": 45,
+    "mismatches": 0
+  }
+}
