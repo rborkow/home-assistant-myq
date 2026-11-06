@@ -19,6 +19,7 @@ from .const import CONF_CAMERA_LAN_ONLY, DOMAIN, MANUFACTURER
 from .coordinator import MyQDataUpdateCoordinator
 from .entity import MyQEntity
 from .exceptions import MyQError
+from .keypad_preview import KeypadPreview
 from .models import GarageDoor, MyQCamera
 from .runtime import MyQConfigEntry
 from .tend_stream import TendLiveStream
@@ -54,6 +55,11 @@ class _MyQCameraMixin(Camera):
 
     def _init_camera(self, camera: MyQCamera | None, opener_serial: str) -> None:
         Camera.__init__(self)
+        self._preview = (
+            KeypadPreview(self.coordinator.hass, camera.serial_number)
+            if camera is not None and camera.device_model == VIDEO_KEYPAD_MODEL
+            else None
+        )
         self._opener_serial = opener_serial
         self._capture_lock = asyncio.Lock()
         self._image: bytes | None = None
@@ -62,6 +68,17 @@ class _MyQCameraMixin(Camera):
         if camera is not None and camera.serial_prefix == "TC":
             self._attr_supported_features = CameraEntityFeature.STREAM
             self.stream_options = {"use_wallclock_as_timestamps": True}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if self._preview is not None:
+            await self._preview.load()
+
+    def _received_snapshot(self, frame: bytes) -> None:
+        if self._preview is not None:
+            self._preview.received(frame)
+            if self.hass and self.entity_id:
+                self.async_write_ha_state()
 
     @property
     def camera(self) -> MyQCamera | None:
@@ -72,11 +89,14 @@ class _MyQCameraMixin(Camera):
         return self.camera.device_model if self.camera is not None else None
 
     @property
-    def extra_state_attributes(self) -> dict[str, str] | None:
+    def extra_state_attributes(self) -> dict[str, str | None] | None:
         camera = self.camera
         if camera is None or camera.serial_prefix is None:
             return None
-        return {"camera_serial_prefix": camera.serial_prefix}
+        attributes: dict[str, str | None] = {"camera_serial_prefix": camera.serial_prefix}
+        if self._preview is not None:
+            attributes["preview_updated"] = self._preview.captured_at
+        return attributes
 
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
@@ -86,6 +106,8 @@ class _MyQCameraMixin(Camera):
         camera = self.camera
         if camera is None:
             return None
+        if self._preview is not None:
+            return await self._preview.image()
         requested_at = time.monotonic()
         async with self._capture_lock:
             if self._image is not None and self._captured_at > requested_at:
@@ -105,15 +127,20 @@ class _MyQCameraMixin(Camera):
         if not self.available or camera is None or camera.serial_prefix != "TC":
             return None
         if self._live_stream is None:
-            self._live_stream = TendLiveStream(
-                self._opener_serial,
-                self.coordinator.client.async_access_token,
-                lan_only=bool(
-                    self.coordinator.config_entry.options.get(CONF_CAMERA_LAN_ONLY, False)
+            entry = self.coordinator.config_entry
+            lan_only = bool(entry.options.get(CONF_CAMERA_LAN_ONLY, False)) if entry else False
+            if self._preview is not None:
+                self._live_stream = TendLiveStream(
+                    self._opener_serial,
+                    self.coordinator.client.async_access_token,
+                    lan_only=lan_only,
+                    idle_seconds=20,
+                    on_snapshot=self._received_snapshot,
                 )
-                if self.coordinator.config_entry
-                else False,
-            )
+            else:
+                self._live_stream = TendLiveStream(
+                    self._opener_serial, self.coordinator.client.async_access_token, lan_only=lan_only
+                )
         return await self._live_stream.source_url()
 
     async def async_will_remove_from_hass(self) -> None:
@@ -122,11 +149,15 @@ class _MyQCameraMixin(Camera):
             if self._live_stream is not None:
                 await self._live_stream.close()
         finally:
-            self._live_stream = None
-            if self.stream is not None:
-                await self.stream.stop()
-                self.stream = None
-            await super().async_will_remove_from_hass()
+            try:
+                if self._preview is not None:
+                    await self._preview.save()
+            finally:
+                self._live_stream = None
+                if self.stream is not None:
+                    await self.stream.stop()
+                    self.stream = None
+                await super().async_will_remove_from_hass()
 
 
 class MyQGarageCamera(MyQEntity, _MyQCameraMixin):

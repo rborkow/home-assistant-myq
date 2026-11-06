@@ -139,3 +139,17 @@ This option is off by default to preserve existing routing behavior. Changing it
 reloads the integration and closes active camera sessions. Cloud authorization,
 signaling and connection setup remain necessary, and this option does not prevent
 independent uploads by the camera. It governs live video, not cloud snapshots.
+
+### Video Keypad previews and battery
+
+The Video Keypad preview is passive: opening an idle dashboard does not fetch a
+cloud image or start live video. It shows the most recent keyframe received during
+an explicit live session, saved locally and restored after integration reload or
+Home Assistant restart. Before the first live view there is no preview. The
+`preview_updated` camera attribute gives its capture time; the image may be stale.
+
+Keypad video uses a 20-second idle grace period after the final internal consumer
+leaves (Home Assistant's own stream worker may remain attached longer). Ordinary
+garage camera behavior is unchanged. Avoid stream preloading on a battery keypad.
+Live viewing still uses battery and cloud authorization/signaling; this change
+does not add background recording or establish a battery-life improvement.

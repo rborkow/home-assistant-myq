@@ -266,9 +266,11 @@ async def test_unattached_camera_gets_its_own_device(hass: HomeAssistant) -> Non
     assert state.state == "idle"
     assert state.attributes["friendly_name"] == "Video Keypad Camera"
 
-    image = await async_get_image(hass, camera_id)
-    assert image.content == IMAGE
-    client.async_get_camera_image.assert_awaited_once_with(KEYPAD)
+    # A never-viewed battery keypad has no preview; an idle dashboard must not fetch one.
+    with pytest.raises(HomeAssistantError):
+        await async_get_image(hass, camera_id)
+    client.async_get_camera_image.assert_not_awaited()
+    assert state.attributes["preview_updated"] is None
 
     client.unattached_cameras = (replace(KEYPAD, online=False),)
     await cast(MyQRuntimeData, entry.runtime_data).coordinator.async_refresh()
@@ -290,6 +292,7 @@ async def test_unattached_camera_streams_without_an_opener_serial() -> None:
         stream_class.return_value.source_url = AsyncMock(return_value="http://127.0.0.1/x")
         assert await entity.stream_source() == "http://127.0.0.1/x"
     assert stream_class.call_args.args[0] == ""
+    assert stream_class.call_args.kwargs["idle_seconds"] == 20
 
 
 async def test_camera_passes_lan_only_option_to_shared_stream() -> None:

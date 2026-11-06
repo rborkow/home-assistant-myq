@@ -83,7 +83,7 @@ async def test_consumers_share_session_and_disconnect_independently(
 
 
 async def test_idle_session_is_closed(live: TendLiveStream, open_session: AsyncMock) -> None:
-    with patch("custom_components.myq.tend_stream._IDLE_SECONDS", 0.01):
+    with patch.object(live, "_idle_seconds", 0.01):
         async with ClientSession() as client:
             response = await client.get(await live.source_url())
             response.close()
