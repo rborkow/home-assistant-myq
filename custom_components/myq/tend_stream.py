@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
@@ -55,7 +56,12 @@ class TendLiveStream:
         idle_seconds: float = _IDLE_SECONDS,
         on_snapshot: Callable[[bytes], None] | None = None,
         prepare_session: Callable[[], Awaitable[None]] | None = None,
+        on_diagnostic: Callable[[str, str | int | float | None], None] | None = None,
     ) -> None:
+        self._on_diagnostic = on_diagnostic
+        self._started_at: float | None = None
+        self._first_frame = False
+        self._failed = False
         self._prepare_session = prepare_session
         self._prepare_task: asyncio.Task[None] | None = None
         self._idle_seconds = idle_seconds
@@ -108,6 +114,21 @@ class TendLiveStream:
                         await runner.cleanup()
             return self._url
 
+    def _diagnostic(self, event: str, value: str | int | float | None = None) -> None:
+        if self._on_diagnostic is not None:
+            try:
+                self._on_diagnostic(event, value)
+            except Exception as error:
+                _LOGGER.debug("Camera diagnostic callback failed: %s", type(error).__name__)
+
+    def _phase(self, phase: str) -> None:
+        self._diagnostic("phase", phase)
+
+    def _statistics(self) -> None:
+        if self._session is not None:
+            for key, value in self._session.statistics.items():
+                self._diagnostic(key, value)
+
     async def _prepare(self) -> None:
         assert self._prepare_session is not None
         await self._prepare_session()
@@ -123,34 +144,58 @@ class TendLiveStream:
                 await self._close_session()
                 if bool(self._closed):
                     raise TendStreamError("Camera stream is closed")
-                if self._prepare_session is not None:
-                    self._prepare_task = asyncio.create_task(self._prepare())
-                    try:
-                        await self._prepare_task
-                    except ClientError, MyQError, OSError, TimeoutError:
-                        raise TendStreamError("Camera could not prepare for live video") from None
-                    finally:
-                        self._prepare_task = None
-                if bool(self._closed):
-                    raise TendStreamError("Camera stream is closed")
-                token = await self._token_supplier()
-                if bool(self._closed):
-                    raise TendStreamError("Camera stream is closed")
-                self._session = await TendSession.open(
-                    self._opener_serial,
-                    token,
-                    self._on_frame,
-                    lan_only=self._lan_only,
-                )
-                if bool(self._closed):
-                    await self._close_session()
-                    raise TendStreamError("Camera stream is closed")
+                self._started_at = time.monotonic()
+                self._first_frame = False
+                self._failed = False
+                self._diagnostic("start")
+                try:
+                    await self._open_session()
+                except asyncio.CancelledError:
+                    self._diagnostic("end")
+                    raise
+                except Exception as error:
+                    if self._closed:
+                        self._diagnostic("end")
+                    else:
+                        self._failed = True
+                        self._diagnostic("error", type(error).__name__)
+                    raise
             viewer = _Viewer()
             self._viewers.add(viewer)
+            self._diagnostic("consumers", len(self._viewers))
             return viewer
+
+    async def _open_session(self) -> None:
+        if self._prepare_session is not None:
+            self._phase("waking")
+            self._prepare_task = asyncio.create_task(self._prepare())
+            try:
+                await self._prepare_task
+            except ClientError, MyQError, OSError, TimeoutError:
+                raise TendStreamError("Camera could not prepare for live video") from None
+            finally:
+                self._prepare_task = None
+        if bool(self._closed):
+            raise TendStreamError("Camera stream is closed")
+        token = await self._token_supplier()
+        if bool(self._closed):
+            raise TendStreamError("Camera stream is closed")
+        self._session = await TendSession.open(
+            self._opener_serial,
+            token,
+            self._on_frame,
+            lan_only=self._lan_only,
+            **({"on_phase": self._phase} if self._on_diagnostic is not None else {}),
+        )
+        if bool(self._closed):
+            await self._close_session()
+            raise TendStreamError("Camera stream is closed")
 
     def _on_frame(self, frame: bytes) -> None:
         if not frame:
+            if not self._closed and self._session is not None and not self._failed:
+                self._failed = True
+                self._diagnostic("error", "VideoEnded")
             for viewer in self._viewers:
                 viewer.end()
             return
@@ -158,6 +203,10 @@ class TendLiveStream:
         types = {kind for kind, _ in units}
         if not types:
             return
+        if types & {1, 5} and not self._first_frame and self._started_at is not None:
+            self._first_frame = True
+            self._diagnostic("first_frame", round(time.monotonic() - self._started_at, 3))
+            self._statistics()
         for kind, nal in units:
             if kind == 7:
                 self._sps = nal
@@ -168,8 +217,12 @@ class TendLiveStream:
             snapshot += (self._pps if 8 not in types else b"") + frame
             if len(snapshot) <= 3_000_000:
                 self._snapshot_frame = snapshot
+                self._statistics()
                 if self._on_snapshot is not None:
-                    self._on_snapshot(snapshot)
+                    try:
+                        self._on_snapshot(snapshot)
+                    except Exception as error:
+                        _LOGGER.debug("Camera snapshot callback failed: %s", type(error).__name__)
         for viewer in self._viewers:
             if not viewer.ready:
                 if 5 not in types or self._sps is None or self._pps is None:
@@ -192,6 +245,8 @@ class TendLiveStream:
 
     def _unsubscribe(self, viewer: _Viewer) -> None:
         self._viewers.discard(viewer)
+        self._diagnostic("consumers", len(self._viewers))
+        self._statistics()
         if not self._viewers and not self._closed:
             delay = 0 if self._session is not None and self._session.ended else self._idle_seconds
             self._idle_timer = asyncio.get_running_loop().call_later(delay, self._start_idle_close)
@@ -244,8 +299,10 @@ class TendLiveStream:
 
     async def _close_session(self) -> None:
         if self._session is not None:
+            self._statistics()
             await self._session.close()
             self._session = None
+            self._diagnostic("end")
         self._sps = self._pps = None
 
     async def close(self) -> None:

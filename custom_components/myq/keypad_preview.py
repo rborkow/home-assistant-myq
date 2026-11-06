@@ -32,6 +32,11 @@ class KeypadPreview:
         self._lock = asyncio.Lock()
 
     @property
+    def timestamp(self) -> float | None:
+        """Unix capture time of the stored frame; reading never performs I/O."""
+        return self._frame_at
+
+    @property
     def captured_at(self) -> str | None:
         return datetime.fromtimestamp(self._frame_at, UTC).isoformat() if self._frame_at else None
 

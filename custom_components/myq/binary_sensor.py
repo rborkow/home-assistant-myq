@@ -13,7 +13,8 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import MyQDataUpdateCoordinator
 from .entity import MyQEntity
-from .models import GarageDoor
+from .keypad_entity import MyQKeypadEntity
+from .models import GarageDoor, MyQCamera
 from .runtime import MyQConfigEntry
 
 type IsOnFn = Callable[[GarageDoor], bool | None]
@@ -67,6 +68,11 @@ async def async_setup_entry(
     del hass
     coordinator = entry.runtime_data.coordinator
     async_add_entities(
+        MyQKeypadBinarySensor(coordinator, keypad, key)
+        for keypad in coordinator.keypads
+        for key in ("streaming", "session_problem")
+    )
+    async_add_entities(
         MyQBinarySensor(coordinator, door, description)
         for door in coordinator.data.values()
         for description in BINARY_SENSOR_DESCRIPTIONS
@@ -104,3 +110,19 @@ class MyQBinarySensor(MyQEntity, BinarySensorEntity):
         ):
             return None
         return {"fault_codes": door.active_fault_codes}
+
+
+class MyQKeypadBinarySensor(MyQKeypadEntity, BinarySensorEntity):
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: MyQDataUpdateCoordinator, keypad: MyQCamera, key: str) -> None:
+        super().__init__(coordinator, keypad, key)
+        self.key = key
+        self._attr_name = "Streaming" if key == "streaming" else "Session problem"
+        if key == "session_problem":
+            self._attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    @property
+    def is_on(self) -> bool:
+        state = self.keypad_state
+        return state.session_active if self.key == "streaming" else state.last_error is not None

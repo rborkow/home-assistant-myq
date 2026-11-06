@@ -5,6 +5,7 @@ door (such as the Video Keypad) get a device of their own.
 """
 
 import asyncio
+import logging
 import time
 from dataclasses import asdict
 
@@ -30,6 +31,8 @@ from .models import GarageDoor, MyQCamera
 from .runtime import MyQConfigEntry
 from .tend_protocol import TendStreamError
 from .tend_stream import TendLiveStream
+
+_LOGGER = logging.getLogger(__name__)
 
 SNAPSHOT_FRAME_INTERVAL = 5.0
 VIDEO_KEYPAD_MODEL = "vkp-camera"
@@ -92,12 +95,89 @@ class _MyQCameraMixin(Camera):
         await super().async_added_to_hass()
         if self._preview is not None:
             await self._preview.load()
+            self._update_snapshot_diagnostic()
 
     def _received_snapshot(self, frame: bytes) -> None:
         if self._preview is not None:
             self._preview.received(frame)
+            self._update_snapshot_diagnostic()
             if self.hass and self.entity_id:
                 self.async_write_ha_state()
+
+    def _notify_keypad(self) -> None:
+        try:
+            self.coordinator.async_keypad_changed()
+        except Exception as error:
+            _LOGGER.debug("Keypad diagnostic notification failed: %s", type(error).__name__)
+
+    def _update_snapshot_diagnostic(self) -> None:
+        camera = self.camera
+        if camera is not None and self._preview is not None:
+            self.coordinator.keypad_state(
+                camera.serial_number
+            ).snapshot_at = self._preview.timestamp
+            self._notify_keypad()
+
+    def _runtime_diagnostic(self, event: str, value: str | int | float | None) -> None:
+        camera = self.camera
+        if camera is None or self._preview is None:
+            return
+        state = self.coordinator.keypad_state(camera.serial_number)
+        if event == "start":
+            state.session_active = True
+            state.phase = state.transport = "connecting"
+            state.last_error = None
+            state.first_frame_seconds = None
+            state.fallback_used = False
+            state.rtp_packets = state.media_discontinuities = state.gop_recoveries = 0
+        elif event == "phase" and isinstance(value, str):
+            if value.startswith("connected_"):
+                state.transport = value.removeprefix("connected_")
+                state.last_transport = state.transport
+                state.phase = (
+                    ("streaming_lan" if state.transport == "lan" else "streaming")
+                    if state.first_frame_seconds is not None
+                    else "awaiting_video"
+                )
+            elif value in {"retrying_lan", "retrying_udp"}:
+                state.udp_retries += 1
+                state.phase = "recovering_lan" if value == "retrying_lan" else "recovering_udp"
+            else:
+                state.phase = value
+        elif event == "first_frame" and isinstance(value, float):
+            state.first_frame_seconds = value
+            state.phase = "streaming_lan" if state.transport == "lan" else "streaming"
+        elif event == "consumers" and isinstance(value, int):
+            state.active_consumers = value
+        elif event in {"rtp_packets", "media_discontinuities", "gop_recoveries"}:
+            if isinstance(value, int):
+                if event == "gop_recoveries" and state.transport == "lan":
+                    state.lan_recoveries += max(0, value - state.gop_recoveries)
+                setattr(state, event, value)
+        elif event == "error" and isinstance(value, str):
+            state.session_active = False
+            state.transport = "idle"
+            state.phase = "error"
+            state.last_error = state.last_failure = value
+            state.failure_at = time.time()
+            state.session_errors += 1
+        elif event == "end":
+            state.session_active = False
+            state.transport = "idle"
+            if state.last_error is None:
+                state.phase = "idle"
+        self._notify_keypad()
+
+    def _recording_diagnostic(self, status: str, path: str | None = None) -> None:
+        camera = self.camera
+        if camera is None:
+            return
+        state = self.coordinator.keypad_state(camera.serial_number)
+        state.recording_status = status
+        if path is not None:
+            state.last_clip = path
+            state.last_clip_at = time.time()
+        self._notify_keypad()
 
     @property
     def camera(self) -> MyQCamera | None:
@@ -156,6 +236,7 @@ class _MyQCameraMixin(Camera):
                     idle_seconds=20,
                     on_snapshot=self._received_snapshot,
                     prepare_session=self._prepare_keypad_stream,
+                    on_diagnostic=self._runtime_diagnostic,
                 )
             else:
                 self._live_stream = TendLiveStream(
@@ -211,6 +292,7 @@ class _MyQCameraMixin(Camera):
         self._last_record_started = time.monotonic()
         async with self._record_lock:
             self._record_task = asyncio.current_task()
+            self._recording_diagnostic("recording")
             try:
                 if await self.stream_source() is None or self._live_stream is None:
                     raise TendStreamError("Keypad live stream is unavailable")
@@ -223,17 +305,28 @@ class _MyQCameraMixin(Camera):
                     get_ffmpeg_manager(self.hass).binary,
                     enroll=self.coordinator.recordings.async_add,
                 )
+                self._recording_diagnostic("completed", result.path)
                 self.hass.bus.async_fire(
                     "myq_keypad_recording_finished",
                     {"entity_id": self.entity_id, "status": "completed", **asdict(result)},
                 )
             except asyncio.CancelledError:
+                self._recording_diagnostic("cancelled")
                 self.hass.bus.async_fire(
                     "myq_keypad_recording_finished",
                     {"entity_id": self.entity_id, "status": "cancelled"},
                 )
                 raise
-            except (OSError, TendStreamError, TimeoutError, ValueError) as error:
+            except (
+                ClientError,
+                MyQError,
+                OSError,
+                TendStreamError,
+                TimeoutError,
+                ValueError,
+                HomeAssistantError,
+            ) as error:
+                self._recording_diagnostic("failed")
                 self.hass.bus.async_fire(
                     "myq_keypad_recording_finished",
                     {

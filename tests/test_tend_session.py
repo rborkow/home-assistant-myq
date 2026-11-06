@@ -129,3 +129,29 @@ async def test_session_passes_lan_policy_to_transport(connection: MagicMock) -> 
         session = await TendSession.open("door-1", "token", MagicMock(), lan_only=True)
         assert factory.call_args.kwargs == {"lan_only": True}
         await session.close()
+
+
+async def test_native_phases_report_retry_and_observed_transport(
+    connection: MagicMock, transport: MagicMock
+) -> None:
+    del connection
+    phases: list[str] = []
+    transport.punch.side_effect = [TendStreamError("UDP failed"), None]
+    transport.transport_kind = "lan"
+    transport.statistics = {"rtp_packets": 10}
+    with patch("custom_components.myq.tend_session._RETRY_DELAY", 0):
+        session = await TendSession.open(
+            "door-1", "token", MagicMock(), lan_only=True, on_phase=phases.append
+        )
+    assert phases == [
+        "signaling",
+        "offer",
+        "udp_handshake",
+        "retrying_lan",
+        "offer",
+        "udp_handshake",
+        "connected_lan",
+    ]
+    assert session.statistics == {"rtp_packets": 10}
+    await session.close()
+    assert session.statistics == {"rtp_packets": 10}

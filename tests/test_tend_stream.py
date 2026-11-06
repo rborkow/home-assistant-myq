@@ -422,3 +422,90 @@ async def test_close_during_old_session_cleanup_prevents_reconnect_wake(
     prepare.assert_not_awaited()
     token.assert_not_awaited()
     open_session.assert_not_awaited()
+
+
+async def test_diagnostics_observe_shared_runtime_without_starting_it(
+    open_session: AsyncMock, socket_enabled: None
+) -> None:
+    del socket_enabled
+    events: list[tuple[str, str | int | float | None]] = []
+    session = open_session.return_value
+    session.statistics = {"rtp_packets": 9, "media_discontinuities": 1, "gop_recoveries": 1}
+    stream = TendLiveStream(
+        "", AsyncMock(return_value="token"), on_diagnostic=lambda *event: events.append(event)
+    )
+    await stream.source_url()
+    assert not events
+    first, second = await asyncio.gather(stream._subscribe(), stream._subscribe())
+    assert events.count(("start", None)) == 1
+    assert ("consumers", 2) in events
+    assert open_session.call_args.kwargs["on_phase"] == stream._phase
+    stream._phase("connected_lan")
+    stream._on_frame(SPS + PPS + IDR)
+    stream._on_frame(PFRAME)
+    assert sum(name == "first_frame" for name, _ in events) == 1
+    assert ("rtp_packets", 9) in events
+    stream._unsubscribe(second)
+    assert events[-4] == ("consumers", 1)
+    stream._unsubscribe(first)
+    await stream.close()
+    assert ("consumers", 0) in events
+    assert events[-1] == ("end", None)
+    assert not any(name == "error" for name, _ in events)
+
+
+async def test_diagnostic_errors_are_sanitized_and_not_double_counted(
+    open_session: AsyncMock,
+) -> None:
+    events: list[tuple[str, str | int | float | None]] = []
+    stream = TendLiveStream(
+        "", AsyncMock(return_value="token"), on_diagnostic=lambda *event: events.append(event)
+    )
+    open_session.side_effect = OSError("private address and token")
+    with pytest.raises(OSError):
+        await stream._subscribe()
+    assert ("error", "OSError") in events
+    assert "private" not in repr(events)
+    await stream.close()
+    assert sum(name == "error" for name, _ in events) == 1
+
+
+async def test_signaling_loss_diagnostics_and_consumers_finish_once(
+    open_session: AsyncMock,
+) -> None:
+    open_session.return_value.statistics = {}
+    events: list[tuple[str, str | int | float | None]] = []
+    stream = TendLiveStream(
+        "", AsyncMock(return_value="token"), on_diagnostic=lambda *event: events.append(event)
+    )
+    viewer = await stream._subscribe()
+    stream._on_frame(b"")
+    stream._on_frame(b"")
+    assert events.count(("error", "VideoEnded")) == 1
+    assert viewer.ended
+    stream._unsubscribe(viewer)
+    await stream.close()
+
+
+async def test_reporting_failures_cannot_interrupt_fanout_or_idle_close(
+    open_session: AsyncMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    callback = MagicMock(side_effect=RuntimeError("private diagnostic payload"))
+    stream = TendLiveStream(
+        "",
+        AsyncMock(return_value="token"),
+        idle_seconds=0,
+        on_diagnostic=callback,
+        on_snapshot=callback,
+    )
+    viewer = await stream._subscribe()
+    stream._on_frame(SPS + PPS + IDR)
+    assert await viewer.frames.get() == SPS + PPS + IDR
+    stream._unsubscribe(viewer)
+    assert stream._idle_timer is not None
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await stream.close()
+    open_session.return_value.close.assert_awaited_once()
+    assert not stream._viewers
+    assert "private diagnostic payload" not in caplog.text

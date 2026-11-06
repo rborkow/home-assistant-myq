@@ -19,6 +19,7 @@ from .const import (
     USER_AGENT,
 )
 from .exceptions import MyQApiError, MyQAuthenticationError
+from .keypad_state import KeypadPower
 from .keypad_wake import async_wake_keypad
 from .models import GarageDoor, MyQAccount, MyQCamera, MyQDevices
 from .oauth import MyQAuth
@@ -36,6 +37,25 @@ class MyQClient:
     async def async_access_token(self) -> str:
         """Return the current OAuth token for Tend camera signaling."""
         return await self._auth.async_access_token()
+
+    async def async_get_keypad_power(self, camera: MyQCamera) -> KeypadPower:
+        """Read cached cloud metadata only on explicit user request; never wake."""
+        if camera.device_model != "vkp-camera" or not camera.tend_device_id.isdecimal():
+            raise MyQApiError("Invalid keypad video identifier")
+        body = await self._async_request(
+            "GET",
+            f"{TEND_API_BASE_URL}/devices/{camera.tend_device_id}",
+            _tend_headers,
+            allow_redirects=False,
+            max_body_bytes=1_024_000,
+        )
+        try:
+            device = json.loads(body)
+            if not isinstance(device, dict):
+                raise ValueError
+            return KeypadPower.from_device(device)
+        except ValueError, UnicodeDecodeError:
+            raise MyQApiError("Keypad returned an invalid power report") from None
 
     async def async_prepare_keypad(self, camera: MyQCamera) -> None:
         """Prepare only a battery keypad, retaining this client's refresh ownership."""
