@@ -163,6 +163,18 @@ class MyQConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         return await self._async_mfa_step("mfa", user_input)
 
+    async def async_step_reconfigure(
+        self,
+        user_input: dict[str, object] | None = None,
+    ) -> ConfigFlowResult:
+        """Allow an explicit fresh sign-in without removing a working entry."""
+        del user_input
+        self._reauth_entry = cast(MyQConfigEntry, self._get_reconfigure_entry())
+        data = cast(MyQConfigData, self._reauth_entry.data)
+        self._email = data[CONF_EMAIL]
+        self._mfa_method = data[CONF_MFA_METHOD]
+        return await self.async_step_reauth_confirm()
+
     async def async_step_reauth(
         self,
         entry_data: Mapping[str, object],
@@ -364,6 +376,7 @@ class MyQConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_update_reload_and_abort(
                 self._reauth_entry,
                 data=data,
+                reason="reauth_successful",
             )
 
         await self.async_set_unique_id(email_address)

@@ -486,3 +486,33 @@ def _entry_data() -> dict[str, object]:
             "expires_at": 0.0,
         },
     }
+
+
+async def test_explicit_reconnect_preserves_entry_until_browser_success(
+    hass: HomeAssistant,
+    mock_login_session: MagicMock,
+    mock_myq_client: MagicMock,
+) -> None:
+    original = _entry_data()
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=EMAIL, data=original)
+    entry.add_to_hass(hass)
+    mock_myq_client.async_get_garage_doors.return_value = (DOOR,)
+    mock_login_session.async_complete_browser.return_value = TOKENS
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_RECONFIGURE, "entry_id": entry.entry_id},
+    )
+    assert result["step_id"] == "reauth_confirm"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"next_step_id": "browser_start"},
+    )
+    assert result["step_id"] == "browser"
+    assert entry.data == original
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"callback_url": "com.myqops://android?code=synthetic"},
+    )
+    assert result["reason"] == "reauth_successful"
+    assert hass.config_entries.async_entries(DOMAIN) == [entry]
+    assert entry.data[CONF_TOKENS]["refresh_token"] == "refresh"

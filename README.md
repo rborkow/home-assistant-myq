@@ -3,7 +3,8 @@
 > **Experimental Video Keypad fork:** this branch adds standalone keypad live
 > video, cached snapshots and bounded local recording. Live HLS playback,
 > recording, reload and restart persistence have been verified on an HA Yellow.
-> Fresh browser onboarding and broader recovery/battery validation remain open.
+> Fresh browser authorization is also verified. Broader recovery and battery
+> validation remain open.
 > See [status and evidence](docs/VIDEO_KEYPAD.md) and the
 > [contribution plan](docs/CONTRIBUTION_PLAN.md). Installation links below refer
 > to upstream and do not install this development branch.

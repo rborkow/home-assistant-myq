@@ -9,7 +9,10 @@ The fork also offers an explicit advanced authorization transfer for validation
 and migrations from a stopped client. Keep that separate from the core keypad
 PRs: most users should use the upstream browser flow. Transferred tokens are
 refreshed and validated before entry creation; the previous client must not reuse
-the chain. This is not evidence that fresh browser onboarding has been completed.
+the chain. Migration alone is not evidence of browser onboarding. A subsequent
+fresh browser authorization through the native HA reconnect flow succeeded and
+was followed by a successful live recording. The explicit reconnect entry point
+is a separate candidate contribution from the keypad transport.
 
 ## Proposed review sequence
 

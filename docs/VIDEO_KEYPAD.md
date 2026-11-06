@@ -26,7 +26,7 @@ experimental branch with live playback and recording verified on an HA Yellow.
 
 ## Evidence, November 5, 2026
 
-Local checks include strict mypy, Ruff lint and formatting, and the test suite.
+Local checks: 264 tests pass, along with strict mypy, Ruff lint and formatting.
 A real account inventory returned two garage doors and one Video Keypad.
 The new session implementation captured 110 H.264 frames at 1152x864, with the
 first frame after 7.21 seconds. FFmpeg decoded the entire capture without error.
@@ -83,15 +83,19 @@ Subsequent live HA validation:
   live network-failure recovery. Further attempts were stopped to avoid needless
   camera activity. Offline disconnect recovery is verified separately above.
 
-The fresh browser flow reached myQ's sign-in page but was deferred because the
-user was away. Migration success does not prove end-to-end browser onboarding.
+Fresh browser authorization subsequently completed through HA's native flow.
+The user signed in directly with myQ; HA exchanged the callback, validated device
+discovery and reported `reauth_successful`. The existing entry remained loaded.
+A five-second recording with the new authorization completed in 13.46 seconds.
+The entry's Reconfigure action now offers an explicit reconnect path without
+deleting entities or replacing working credentials before successful validation.
 The migration action is an advanced fork feature; its new strings currently use
 English fallback text in other locales. Stop the old token owner first. It is
 not necessary for users who can complete normal browser sign-in.
 
 ## Remaining acceptance checks
 
-1. Complete normal HA browser onboarding when interactive sign-in is available.
+1. Fresh browser authorization is verified, including a subsequent live recording.
 2. Finish forced network failure recovery and longer shared-viewer checks.
    Shared-consumer and cancellation behavior also have synthetic tests.
 3. Battery/health scope is recorded in [the battery policy](BATTERY_POLICY.md).

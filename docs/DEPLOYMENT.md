@@ -6,7 +6,9 @@ directory into HA's `custom_components`, run the HA configuration check and rest
 HA. Keep a backup of any previous `myq` directory. The separate original keypad
 bridge can remain installed as a fallback, but avoid simultaneous camera sessions.
 
-Set up MyQ in Devices & services using normal browser sign-in. For an advanced
+Set up MyQ in Devices & services using normal browser sign-in. An existing entry's
+**Reconfigure** menu offers fresh sign-in while keeping its current credentials
+until the replacement authorization passes validation. For an advanced
 migration, stop the client that owns the refresh token, select **Transfer an
 existing authorization**, and provide the account email and refresh token. HA
 validates refresh and discovery, then stores the newly issued tokens. Retire the
