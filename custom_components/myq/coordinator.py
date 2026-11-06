@@ -58,7 +58,9 @@ class MyQDataUpdateCoordinator(DataUpdateCoordinator[MyQCoordinatorData]):
         self._keypad_state_loaded = False
         self._keypad_credential_renewals = 0
         self._power_locks: dict[str, asyncio.Lock] = {}
-        self._keypad_store = Store[dict[str, object]](hass, 1, f"{DOMAIN}.{entry.entry_id}.keypads")
+        self._keypad_store = Store[dict[str, object]](
+            hass, 1, f"{DOMAIN}.{entry.entry_id}.keypads", private=True
+        )
         self._pending_commands: dict[str, _PendingCommand] = {}
         self.cameras: dict[str, MyQCamera] = {}
 
