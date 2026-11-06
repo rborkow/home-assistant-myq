@@ -22,6 +22,7 @@ from .coordinator import MyQDataUpdateCoordinator
 from .keypad_recording import record_keypad
 from .keypad_session import KeypadSession
 from .keypad_state import KeypadPower, KeypadState
+from .keypad_transport import DEFAULT_POLICY, open_transport
 from .models import VideoKeypad
 from .tend_protocol import TendStreamError
 from .tend_stream import TendLiveStream, _nals
@@ -106,6 +107,8 @@ class MyQKeypadCamera(CoordinatorEntity[MyQDataUpdateCoordinator], Camera):
         state = self.keypad_state
         state.session_active = True
         state.last_error = None
+        state.transport = "connecting"
+        state.fallback_used = False
         first_frame = True
 
         def frame(data: bytes) -> None:
@@ -119,13 +122,19 @@ class MyQKeypadCamera(CoordinatorEntity[MyQDataUpdateCoordinator], Camera):
                 state.snapshot_at = time.time()
             on_frame(data)
 
-        return await KeypadSession.open(
+        entry = self.coordinator.config_entry
+        policy = (
+            str(entry.options.get("transport_policy", DEFAULT_POLICY)) if entry else DEFAULT_POLICY
+        )
+        return await open_transport(
+            policy,
             keypad.camera,
             token,
             frame,
             on_power=self._power,
             on_phase=self._phase,
             on_finished=self._finished,
+            on_fallback=self._fallback,
         )
 
     @property
@@ -136,13 +145,27 @@ class MyQKeypadCamera(CoordinatorEntity[MyQDataUpdateCoordinator], Camera):
         self.keypad_state.power = power
         self.coordinator.async_keypad_changed()
 
+    def _fallback(self) -> None:
+        state = self.keypad_state
+        state.session_active = True
+        state.last_error = None
+        state.fallback_used = True
+        state.transport = "connecting"
+        self.coordinator.async_keypad_changed()
+
     def _phase(self, phase: str) -> None:
         self.keypad_state.phase = phase
+        if phase == "recovering_lan":
+            self.keypad_state.lan_recoveries += 1
+        if phase in {"streaming", "streaming_lan"}:
+            self.keypad_state.transport = "lan" if phase == "streaming_lan" else "cloud_relay"
+            self.keypad_state.last_transport = self.keypad_state.transport
         self.coordinator.async_keypad_changed()
 
     def _finished(self, error: str | None) -> None:
         state = self.keypad_state
         state.session_active = False
+        state.transport = "idle"
         state.phase = "error" if error else "idle"
         state.last_error = error
         if error:

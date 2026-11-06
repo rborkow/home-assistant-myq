@@ -14,6 +14,7 @@ from .client import MyQClient
 from .const import CONF_TOKENS, DOMAIN
 from .coordinator import MyQDataUpdateCoordinator
 from .exceptions import MyQApiError, MyQAuthenticationError
+from .keypad_transport import DEFAULT_POLICY
 from .models import OAuthTokens
 from .oauth import MyQAuth
 from .runtime import (
@@ -75,6 +76,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyQConfigEntry) -> bool:
             translation_key="api_error",
         ) from error
 
+    policy_at_setup = entry.options.get("transport_policy", DEFAULT_POLICY)
+
+    async def policy_changed(hass: HomeAssistant, updated: MyQConfigEntry) -> None:
+        # Token rotation also invokes update listeners; it must never reload the entry.
+        if updated.options.get("transport_policy", DEFAULT_POLICY) != policy_at_setup:
+            await hass.config_entries.async_reload(updated.entry_id)
+
+    entry.async_on_unload(entry.add_update_listener(policy_changed))
     entry.runtime_data = MyQRuntimeData(client=client, coordinator=coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

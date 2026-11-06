@@ -9,6 +9,7 @@ from homeassistant.helpers.typing import StateType
 
 from .coordinator import MyQDataUpdateCoordinator
 from .keypad_entity import MyQKeypadEntity
+from .keypad_transport import DEFAULT_POLICY
 from .models import VideoKeypad
 
 KEYPAD_SENSORS = {
@@ -16,6 +17,7 @@ KEYPAD_SENSORS = {
     "power_state": "Reported power state",
     "power_sample_time": "Battery sample time",
     "session_state": "Session state",
+    "transport": "Video transport",
     "session_errors": "Session errors",
     "startup_time": "Last startup time",
     "active_consumers": "Active consumers",
@@ -63,6 +65,8 @@ class MyQKeypadSensor(MyQKeypadEntity, SensorEntity):
                 return power.sleep_mode if power else None
             case "power_sample_time":
                 return datetime.fromtimestamp(power.sampled_at, UTC) if power else None
+            case "transport":
+                return state.transport
             case "session_state":
                 return state.phase
             case "session_errors":
@@ -85,6 +89,16 @@ class MyQKeypadSensor(MyQKeypadEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, str | float | None] | None:
+        if self.key == "transport":
+            entry = self.coordinator.config_entry
+            return {
+                "policy": str(entry.options.get("transport_policy", DEFAULT_POLICY))
+                if entry
+                else DEFAULT_POLICY,
+                "last_transport": self.keypad_state.last_transport,
+                "cloud_fallback_used": self.keypad_state.fallback_used,
+                "lan_keyframe_recoveries": self.keypad_state.lan_recoveries,
+            }
         if self.key == "last_clip" and self.keypad_state.last_clip:
             return {
                 "media_content_id": "media-source://media_source/local/myq-keypad/"

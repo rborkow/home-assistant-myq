@@ -48,6 +48,7 @@ class KeypadSession:
         self._control: Session | None = None
         self._media: Session | None = None
         self.ended = False
+        self._device_info: dict[str, object] = {}
 
     @classmethod
     async def open(
@@ -119,6 +120,7 @@ class KeypadSession:
                 urllib.request.Request(f"{endpoint}?{query}", headers=headers), timeout=10
             ) as response:
                 device = json.loads(response.read(1_024_000))
+            self._device_info = device
             self._publish_power(device)
             if device.get("status", {}).get("pwr", {}).get("sleepMode") == "FP":
                 return
@@ -135,6 +137,7 @@ class KeypadSession:
         )
         with urllib.request.build_opener(_NoRedirect).open(request, timeout=15) as response:
             device = json.loads(response.read(1_024_000))
+        self._device_info = device
         self._publish_power(device)
         alias = device.get("alias")
         if not isinstance(alias, str) or ":" not in alias or any(c in alias for c in "\r\n|"):

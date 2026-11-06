@@ -18,7 +18,9 @@ is optional and does not require signing out of separately authorized phone apps
 The keypad appears as a separate device with a camera entity. Keep camera stream
 preloading disabled for battery use. Snapshots are cached from previous live video;
 they do not wake the keypad and can be stale. The last received keyframe is saved
-at session end and restored after restart; the Snapshot time sensor shows its age. Live viewing still uses myQ/Tend cloud services.
+at session end and restored after restart; the Snapshot time sensor shows its age. Live video defaults to direct LAN transport; myQ/Tend cloud authorization, wake
+and rendezvous remain required. See [LAN video](LAN_VIDEO.md) for explicit
+LAN-only, LAN-preferred and cloud-relay policies and network requirements.
 
 ## Recording
 
@@ -46,6 +48,12 @@ replaced, and symlinked files. It never scans old files into ownership. New reco
 or at 2 GB of stored MP4s; this is an admission check, not a hard quota.
 
 ## Yellow validation and rollback
+
+Version `0.4.0.dev1` adds native LAN video and a Video transport diagnostic.
+LAN-only is the default and the explicitly selected policy on the test Yellow.
+See [native LAN evidence](validation/ha-lan-native.json). The original relay
+transport remains an explicit option; no silent cloud-media fallback is enabled.
+
 
 The deployment has created the standalone camera, produced live HLS video and
 validated local recordings, survived integration reload and HA restart, recovered

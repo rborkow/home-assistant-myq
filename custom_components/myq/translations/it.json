@@ -153,11 +153,12 @@
     "step": {
       "init": {
         "title": "Keypad recording settings",
-        "description": "Only recordings created after managed retention was enabled are eligible for deletion. Existing clips are preserved. Retention 0 keeps managed clips indefinitely. Longer recordings and frequent triggers use more battery.",
+        "description": "LAN only never relays video through the cloud. LAN preferred allows cloud relay if LAN startup fails. Cloud relay explicitly uses cloud video. Cloud login and wake-up are required in all modes. Changing transport closes active sessions. Only recordings created after managed retention was enabled are eligible for deletion. Existing clips are preserved. Retention 0 keeps managed clips indefinitely. Longer recordings and frequent triggers use more battery.",
         "data": {
           "recording_duration": "Default recording duration (seconds)",
           "recording_cooldown": "Minimum time between recording starts (seconds)",
-          "retention_days": "Delete managed clips after (days; 0 disables deletion)"
+          "retention_days": "Delete managed clips after (days; 0 disables deletion)",
+          "transport_policy": "Video transport policy"
         }
       }
     }

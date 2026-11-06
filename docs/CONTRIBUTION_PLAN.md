@@ -112,3 +112,39 @@ retention that preserves existing recordings. Retention tests cover older unmana
 files, fresh files, replaced files, symlinks, disabled cleanup and reload. The
 options flow changes recording policy without touching authorization. The supplied
 dashboard is deployment guidance, not an automatically installed integration UI.
+
+## Upstream camera overlap — checked 2026-11-06
+
+[PR #11](https://github.com/bvdcode/home-assistant-myq/pull/11), by naisbitt,
+adds standalone cameras/Video Keypad discovery, snapshots and live streaming to
+`develop`. At review its head was `cd52fc8b45715904a236a50de44c0dbfff2765a4`,
+base `11a857191a1d199066be1a14671364ff3e39c409`; it was open and not merged.
+The older [PR #7](https://github.com/bvdcode/home-assistant-myq/pull/7) was closed
+without a merge, but camera code already exists in `develop`. Do not treat the
+closed PR status or the release branch alone as absence of upstream camera work.
+
+The upstream `tend_media.py` already implements UDP hole punching, RTP assembly,
+AES decoding and RTCP reports. LAN streaming itself is overlapping work, not a
+unique contribution of this fork. PR #11 adds camera selection/discovery on that
+existing transport. This overlap should have been reassessed before implementing
+another receiver.
+
+Keep the validated installed branch as a checkpoint. Next, integrate upstream's
+camera structure and PR #11 (or its merged successor), then port only the remaining
+behavior in independently reviewable changes:
+
+1. Battery-aware explicit wake, cached preview persistence and power diagnostics.
+2. Exact camera identity selection where metadata permits it.
+3. Bounded fragment reordering, malformed-input checks and IDR recovery after loss.
+4. Explicit LAN-only policy and visible transport/fallback diagnostics.
+5. Bounded recording, cancellation, full-file validation and owned-file retention.
+
+Assess each against current upstream before proposing it. Do not submit a second
+complete camera implementation or continue expanding a parallel transport stack.
+Research scripts, phone instrumentation, keys and private captures are not part of
+an upstream contribution. No upstream PR/comment has been posted by this work.
+
+The current installation remains experimental: one keypad/Yellow was tested,
+startup negotiation sometimes needs a retry, and extended battery life has not
+been measured. [LAN documentation](LAN_VIDEO.md) distinguishes local media from
+cloud control and records keyframe recovery and retransmission limitations.

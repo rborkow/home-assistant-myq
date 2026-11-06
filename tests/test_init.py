@@ -414,3 +414,22 @@ def _entry(*, disable_polling: bool = False) -> MockConfigEntry:
 
 def _entry_state(entry: MockConfigEntry) -> ConfigEntryState:
     return cast(ConfigEntryState, entry.state)
+
+
+async def test_transport_change_reloads_but_token_rotation_does_not(hass: HomeAssistant) -> None:
+    entry = _entry()
+    entry.add_to_hass(hass)
+    client = MagicMock()
+    client.async_get_garage_doors = AsyncMock(return_value=(DOOR,))
+    with patch("custom_components.myq.MyQClient", return_value=client):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    with patch.object(hass.config_entries, "async_reload", new_callable=AsyncMock) as reload:
+        hass.config_entries.async_update_entry(entry, data={**entry.data, "test_rotation": True})
+        await hass.async_block_till_done()
+        reload.assert_not_awaited()
+        hass.config_entries.async_update_entry(entry, options={"transport_policy": "cloud_relay"})
+        await hass.async_block_till_done()
+        reload.assert_awaited_once_with(entry.entry_id)
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

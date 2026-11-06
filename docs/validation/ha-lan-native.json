@@ -1,0 +1,249 @@
+{
+  "date": "2026-11-06",
+  "version": "0.4.0.dev1",
+  "status": "functional_experimental_not_production_ready",
+  "unit_tests_passed": 302,
+  "ruff": "passed",
+  "mypy": "passed",
+  "offline_loss_replay": {
+    "datagrams": 550,
+    "published_access_units": 85,
+    "buffered_bytes": 0,
+    "full_decode_ok": true,
+    "damaged_gop_discarded": true
+  },
+  "shared_viewing_and_recording": {
+    "requested_recording_seconds": 60,
+    "reader_requested_seconds": [
+      20,
+      65
+    ],
+    "first_viewer_exit_seconds": 65.34,
+    "long_viewer_still_running": true,
+    "recording_still_running": true,
+    "recording": {
+      "http_status": 200,
+      "finished_seconds": 104.83
+    },
+    "reader_exit_codes": [
+      0,
+      0
+    ],
+    "max_media_connections": 0,
+    "max_control_connections": 1,
+    "lan_keyframe_recoveries": 0,
+    "observed_transports": [
+      "connecting",
+      "lan"
+    ],
+    "cloud_fallback_used": false,
+    "consumer_phase_seconds": 110.18,
+    "recorded_clip": {
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1152,
+            "height": 864,
+            "nb_read_frames": "1200"
+          }
+        ],
+        "format": {
+          "duration": "60.000000"
+        }
+      },
+      "full_decode_passed": true,
+      "bytes": 8047803
+    },
+    "viewers": [
+      {
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1152,
+              "height": 864,
+              "nb_read_frames": "400"
+            }
+          ],
+          "format": {
+            "duration": "20.064136"
+          }
+        },
+        "full_decode_passed": true,
+        "bytes": 2660366
+      },
+      {
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1152,
+              "height": 864,
+              "nb_read_frames": "1300"
+            }
+          ],
+          "format": {
+            "duration": "65.053245"
+          }
+        },
+        "full_decode_passed": true,
+        "bytes": 8624670
+      }
+    ],
+    "partial_files_after": 0,
+    "connections_after_idle": {
+      "media": 0,
+      "control": 0
+    },
+    "total_wall_seconds": 156.04,
+    "passed": true
+  },
+  "cancellation_with_viewers": {
+    "requested_recording_seconds": 120,
+    "reader_requested_seconds": [
+      20,
+      65
+    ],
+    "last_failure": "Keypad lan_connect failed (LAN peer handshake timed out)",
+    "cancel_http_status": 200,
+    "viewer_running_at_cancel": true,
+    "first_viewer_exit_seconds": 39.75,
+    "long_viewer_still_running": true,
+    "recording_still_running": false,
+    "recording": {
+      "http_status": 502,
+      "finished_seconds": 21.0
+    },
+    "reader_exit_codes": [
+      0,
+      0
+    ],
+    "max_lan_channels": 2,
+    "max_media_connections": 0,
+    "max_control_connections": 1,
+    "observed_transports": [
+      "connecting",
+      "lan"
+    ],
+    "cloud_fallback_used": false,
+    "consumer_phase_seconds": 82.43,
+    "no_cancelled_clip_published": true,
+    "existing_clips_unchanged": true,
+    "recording_state": "cancelled",
+    "viewers": [
+      {
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1152,
+              "height": 864,
+              "nb_read_frames": "204"
+            }
+          ],
+          "format": {
+            "duration": "20.023435"
+          }
+        },
+        "full_decode_passed": true,
+        "bytes": 1580045
+      },
+      {
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1152,
+              "height": 864,
+              "nb_read_frames": "862"
+            }
+          ],
+          "format": {
+            "duration": "65.027480"
+          }
+        },
+        "full_decode_passed": true,
+        "bytes": 6002856
+      }
+    ],
+    "partial_files_after": 0,
+    "lan_channels_after_idle": 0,
+    "connections_after_idle": {
+      "media": 0,
+      "control": 0
+    },
+    "total_wall_seconds": 128.68,
+    "passed": true
+  },
+  "installed_state_before_reload": {
+    "files": 54,
+    "all_source_matches": true,
+    "version": "0.4.0.dev1",
+    "options": {
+      "transport_policy": "lan_only",
+      "recording_duration": 30,
+      "recording_cooldown": 60,
+      "retention_days": 30
+    },
+    "idle_connections": {
+      "media": 0,
+      "control": 0
+    },
+    "states": {
+      "sensor.keypad_video_transport": {
+        "state": "idle",
+        "attributes": {
+          "policy": "lan_only",
+          "last_transport": "lan",
+          "cloud_fallback_used": false,
+          "lan_keyframe_recoveries": 24
+        }
+      },
+      "sensor.keypad_reported_power_state": {
+        "state": "LPDS",
+        "attributes": {}
+      },
+      "sensor.keypad_session_state": {
+        "state": "idle",
+        "attributes": {}
+      },
+      "sensor.keypad_session_errors": {
+        "state": "1",
+        "attributes": {
+          "last_failure": "Keypad lan_connect failed (LAN peer handshake timed out)"
+        }
+      },
+      "sensor.keypad_active_consumers": {
+        "state": "0",
+        "attributes": {}
+      }
+    },
+    "passed": true
+  },
+  "cache_reload": {
+    "reload_http_status": 200,
+    "timestamp_preserved": true,
+    "streaming": "off",
+    "passed": true
+  },
+  "known_limits": [
+    "One keypad and HA Yellow only; no battery-life measurement",
+    "Cloud authorization, wake and rendezvous remain required",
+    "One startup handshake failure recovered by retry",
+    "Cancellation/playback run accumulated 24 keyframe recovery episodes; pauses and lower delivered frame rate remain a material reliability limitation",
+    "No proprietary retransmission; IDR resynchronization skips damaged groups",
+    "No claim that independent camera vendor uploads are blocked"
+  ],
+  "upstream_plan": "Converge on develop and PR #11; port only remaining improvements instead of expanding parallel camera transport"
+}

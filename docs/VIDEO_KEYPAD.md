@@ -153,3 +153,8 @@ LAN address, yielding 111 and 104 fully decoded H.264 frames without opening clo
 media sockets. Cloud authorization, wake-up and rendezvous remain necessary. This
 transport is not installed in the native integration yet. See [LAN/P2P research](LAN_P2P_RESEARCH.md)
 for evidence, the corrected transport-mode mapping, and the production-hardening plan.
+
+## Native LAN video
+
+See [LAN video](LAN_VIDEO.md) for the default LAN-only transport, explicit relay
+policies, cloud-control dependencies and packet-loss behavior.

@@ -2,7 +2,8 @@
 
 **Proven on this keypad and HA Yellow: video can travel directly over the LAN
 without modifying hardware or using an Android/iOS app at runtime.** The installed
-HA integration still uses its validated cloud relay; this was an isolated probe.
+feasibility tests below were isolated probes. Native implementation and deployment
+are described in [LAN video](LAN_VIDEO.md).
 
 ## Evidence
 
@@ -26,7 +27,7 @@ Media collection was bounded to six seconds after the start command, inside an
 
 The shipped application's Java and ARM64 client distinguish these transports:
 
-- Mode 0: TCP cloud relay, used by the installed integration.
+- Mode 0: TCP cloud relay, retained as an explicit policy option.
 - Mode 2: proprietary direct TCP; the advertised port 9494 timed out while asleep
   and actively refused connections after a cloud wake. This path was not usable.
 - Modes 8/9: RTP P2P, with mode 9 used for the encrypted-media proof.
@@ -61,7 +62,7 @@ No router/firewall changes, firmware writes, camera-setting changes, or producti
 integration modifications were made. Probe sockets close and video-stop/logout
 commands are sent during cleanup. The native HA entry remained loaded and idle.
 
-## Next implementation milestone
+## Implementation follow-up
 
 1. Add a separate LAN session implementation behind the existing shared stream
    interface; retain the proven relay implementation.
@@ -69,7 +70,7 @@ commands are sent during cleanup. The native HA entry remained loaded and idle.
    fails. Any cloud-relay fallback must be opt-in and visible in diagnostics.
 3. Validate rendezvous candidates against device identity and permitted LAN routes;
    bound UDP packet sizes, fragment counts, buffering, retries and session lifetime.
-4. Implement RTCP/keepalive, loss/reordering handling and bounded retransmission;
+4. Implement RTCP/keepalive and bounded loss/reordering handling; consider retransmission;
    test malformed packets, cancellation, key changes, reconnect and port changes.
 5. Repeat HA playback/recording/concurrent-viewer/reload tests and longer sessions;
    measure startup, wake duration and battery separately. Local routing alone is
@@ -78,3 +79,10 @@ commands are sent during cleanup. The native HA entry remained loaded and idle.
 A separate later experiment can distinguish cloud control dependence from camera
 uploads using device-scoped packet observation and narrowly controlled egress
 restrictions. It is not required to establish this local receiver path.
+
+The native receiver implements bounded reordering and keyframe resynchronization,
+not proprietary retransmission. Offline replay found missing fragments in the
+second feasibility capture; full decoding of the recovered units did not mean
+lossless reception. The initial strict parser emitted the intact first 20 units and stopped at the
+first unrecoverable gap. Hardware startup tests motivated resynchronizing at the
+next complete IDR instead; dependent frames after a gap are discarded.

@@ -75,6 +75,10 @@ class KeypadState:
 
     power: KeypadPower | None = None
     phase: str = "idle"
+    transport: str = "idle"
+    last_transport: str | None = None
+    fallback_used: bool = False
+    lan_recoveries: int = 0
     active_consumers: int = 0
     session_active: bool = False
     session_errors: int = 0
