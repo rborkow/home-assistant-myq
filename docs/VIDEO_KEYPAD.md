@@ -145,3 +145,11 @@ is stopped, boot is manual, and watchdog is off; installation and separate crede
 remain for rollback. With the bridge stopped, a native five-second recording produced
 100 fully decoded frames in 14.72 seconds. See the [sanitized daily-use evidence](validation/ha-native-daily-use.json).
 A cached-preview dashboard example is in [examples/keypad-dashboard.json](examples/keypad-dashboard.json).
+
+## Separate LAN/P2P feasibility proof
+
+Two isolated mode-9 sessions received video directly from this keypad's private
+LAN address, yielding 111 and 104 fully decoded H.264 frames without opening cloud
+media sockets. Cloud authorization, wake-up and rendezvous remain necessary. This
+transport is not installed in the native integration yet. See [LAN/P2P research](LAN_P2P_RESEARCH.md)
+for evidence, the corrected transport-mode mapping, and the production-hardening plan.

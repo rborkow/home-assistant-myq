@@ -1,0 +1,160 @@
+{
+  "date": "2026-11-06",
+  "scope": "Isolated LAN video feasibility; installed HA transport unchanged",
+  "sessions": [
+    {
+      "negotiation": {
+        "cloud_media_connections_opened": 0,
+        "negotiations": [
+          {
+            "mode": 9,
+            "accepted": true,
+            "commands": [
+              "accept-video-receive"
+            ],
+            "field_count": 4,
+            "udp_discovery": {
+              "packet_counts": {
+                "2": 4,
+                "3": 2,
+                "5": 2,
+                "4": 6,
+                "lan_media_datagrams": 427
+              },
+              "channels": [
+                {
+                  "channel": 0,
+                  "private_peer_matched_camera": true,
+                  "peer_port": 9090,
+                  "handshake_ready": true
+                },
+                {
+                  "channel": 1,
+                  "private_peer_matched_camera": true,
+                  "peer_port": 9091,
+                  "handshake_ready": true
+                }
+              ],
+              "video_start_sent": true,
+              "cloud_media_connections_opened": 0
+            },
+            "endpoint_private": false,
+            "endpoint_port": 5338
+          }
+        ],
+        "control_capabilities": {
+          "RTP": "1",
+          "LPORT": "9494",
+          "UPORT": "0"
+        },
+        "aes_key_present": true,
+        "direct_capability_marker_present": true
+      },
+      "decode": {
+        "fragment_datagrams": 425,
+        "reassembled_packets": 111,
+        "decryption_errors": 0,
+        "media_source_matches_camera": true,
+        "complete_packet_types": {
+          "7731": 111
+        },
+        "access_units_from_keyframe": 111,
+        "video": [
+          {
+            "codec_name": "h264",
+            "width": 1152,
+            "height": 864,
+            "nb_read_frames": "111"
+          }
+        ],
+        "full_decode_ok": true,
+        "passed": true
+      }
+    },
+    {
+      "negotiation": {
+        "cloud_media_connections_opened": 0,
+        "negotiations": [
+          {
+            "mode": 9,
+            "accepted": true,
+            "commands": [
+              "accept-video-receive"
+            ],
+            "field_count": 4,
+            "udp_discovery": {
+              "packet_counts": {
+                "2": 4,
+                "3": 2,
+                "5": 2,
+                "4": 6,
+                "lan_media_datagrams": 552
+              },
+              "channels": [
+                {
+                  "channel": 0,
+                  "private_peer_matched_camera": true,
+                  "peer_port": 9064,
+                  "handshake_ready": true
+                },
+                {
+                  "channel": 1,
+                  "private_peer_matched_camera": true,
+                  "peer_port": 9065,
+                  "handshake_ready": true
+                }
+              ],
+              "video_start_sent": true,
+              "cloud_media_connections_opened": 0
+            },
+            "endpoint_private": false,
+            "endpoint_port": 5338
+          }
+        ],
+        "control_capabilities": {
+          "RTP": "1",
+          "LPORT": "9494",
+          "UPORT": "0"
+        },
+        "aes_key_present": true,
+        "direct_capability_marker_present": true
+      },
+      "decode": {
+        "fragment_datagrams": 550,
+        "reassembled_packets": 104,
+        "decryption_errors": 0,
+        "media_source_matches_camera": true,
+        "complete_packet_types": {
+          "7731": 104
+        },
+        "access_units_from_keyframe": 104,
+        "video": [
+          {
+            "codec_name": "h264",
+            "width": 1152,
+            "height": 864,
+            "nb_read_frames": "104"
+          }
+        ],
+        "full_decode_ok": true,
+        "passed": true
+      }
+    }
+  ],
+  "hardware_modified": false,
+  "phone_required": false,
+  "oauth_refresh_performed_by_probe": false,
+  "cloud_control_required": [
+    "device metadata and session key",
+    "wake",
+    "CXNet authorization and negotiation",
+    "UDP rendezvous"
+  ],
+  "cloud_media_sockets_opened": 0,
+  "limits": [
+    "Short captures only; production transport reliability not established",
+    "Does not prove the camera makes no independent cloud uploads",
+    "No WAN-blocked or fully offline test performed"
+  ],
+  "passed": true
+}
