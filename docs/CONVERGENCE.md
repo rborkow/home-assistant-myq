@@ -25,6 +25,28 @@ replay intervals were synthetic. This is recorded-input coverage, not a live
 camera test or proof of TC-camera compatibility. Private captures and keys are
 not included in this repository.
 
+## Live candidate validation
+
+The combined candidate at `24a5dbc` was tested in an isolated process on HA Yellow
+without replacing the installed integration or refreshing a copied OAuth token.
+An explicit REST wake followed by the unchanged upstream session produced 182
+fully decoded H.264 frames in a 10-second capture and 586 in a 30-second capture,
+both at 1152×864. Both UDP channels matched the authenticated camera LAN address;
+there were no cloud-media TCP connections, and the signaling connection closed
+after each test. These results validate this combined candidate on one keypad,
+not ordinary-camera compatibility or sustained reliability.
+
+The sleeping-keypad test without an explicit wake authenticated and received an
+offer but timed out during UDP setup. On-demand wake is therefore required before
+migration; the successful test used a separate probe wake, not an integrated hook.
+Snapshots must remain passive, and wake must occur only when starting a shared
+live session for a viewer or recording.
+
+Full local Hassfest against Home Assistant 2026.7.4 found a missing optional FFmpeg
+dependency declaration. That is fixed in the preview, recording, and combined
+branches. The combined branch passes 308 tests, Ruff, mypy, and that validator.
+Private storage migration and dashboard changes remain staged, not applied.
+
 ## Before replacing the installed fork
 
 Keep the installed `feature/video-keypad` checkpoint until the candidate has live
