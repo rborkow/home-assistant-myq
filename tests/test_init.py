@@ -434,6 +434,10 @@ async def test_camera_policy_reload_ignores_token_and_unrelated_option_updates(
         await hass.async_block_till_done()
         reload.assert_not_awaited()
         hass.config_entries.async_update_entry(entry, options={"camera_lan_only": True})
+        # A token rotation can queue a second callback before the policy reload runs.
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_TOKENS: {"access_token": "rotated-again"}}
+        )
         await hass.async_block_till_done()
         reload.assert_awaited_once_with(entry.entry_id)
     await hass.config_entries.async_unload(entry.entry_id)

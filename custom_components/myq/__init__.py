@@ -67,11 +67,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyQConfigEntry) -> bool:
             translation_key="api_error",
         ) from error
 
-    lan_only_at_setup = entry.options.get(CONF_CAMERA_LAN_ONLY, False)
+    current_lan_only = entry.options.get(CONF_CAMERA_LAN_ONLY, False)
 
     async def camera_policy_changed(hass: HomeAssistant, updated: MyQConfigEntry) -> None:
         # Data-only updates (including OAuth refresh) must not interrupt live video.
-        if updated.options.get(CONF_CAMERA_LAN_ONLY, False) != lan_only_at_setup:
+        nonlocal current_lan_only
+        policy = updated.options.get(CONF_CAMERA_LAN_ONLY, False)
+        if policy != current_lan_only:
+            current_lan_only = policy
             await hass.config_entries.async_reload(updated.entry_id)
 
     entry.async_on_unload(entry.add_update_listener(camera_policy_changed))
