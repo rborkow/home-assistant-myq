@@ -139,7 +139,9 @@ class _MyQCameraMixin(Camera):
                 )
             else:
                 self._live_stream = TendLiveStream(
-                    self._opener_serial, self.coordinator.client.async_access_token, lan_only=lan_only
+                    self._opener_serial,
+                    self.coordinator.client.async_access_token,
+                    lan_only=lan_only,
                 )
         return await self._live_stream.source_url()
 
