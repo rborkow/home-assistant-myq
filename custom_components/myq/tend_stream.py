@@ -10,27 +10,13 @@ from collections.abc import Awaitable, Callable
 from aiohttp import ClientError, web
 
 from .exceptions import MyQError
-from .tend_protocol import TendStreamError
+from .tend_protocol import TendStreamError, _nals
 from .tend_session import TendSession
 
 _LOGGER = logging.getLogger(__name__)
 _IDLE_SECONDS = 60
 _FRAME_TIMEOUT = 30
 _SHUTDOWN_TIMEOUT = 0.1
-
-
-def _nals(data: bytes) -> list[tuple[int, bytes]]:
-    starts: list[tuple[int, int]] = []
-    index = data.find(b"\x00\x00\x01")
-    while index != -1:
-        starts.append((index - 1, 4) if index and data[index - 1] == 0 else (index, 3))
-        index = data.find(b"\x00\x00\x01", index + 3)
-    units: list[tuple[int, bytes]] = []
-    for position, (start, prefix) in enumerate(starts):
-        end = starts[position + 1][0] if position + 1 < len(starts) else len(data)
-        if end > start + prefix:
-            units.append((data[start + prefix] & 0x1F, data[start:end]))
-    return units
 
 
 class _Viewer:

@@ -13,12 +13,14 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from .tend_fragments import FragmentAssembler, rtp_payload
 from .tend_protocol import (
     _SDNK_MAGIC,
     TendCamera,
     TendStreamError,
     VideoOffer,
     _media_id,
+    _nals,
     _sdnk,
     decode_video_payload,
     parse_peer_packet,
@@ -85,8 +87,11 @@ class VideoTransport:
         self._camera_ips = {camera.local_ip} if camera.local_ip else set[str]()
         self._connected = asyncio.Event()
         self._report_task: asyncio.Task[None] | None = None
-        self._frame_number: int | None = None
-        self._fragments: list[bytes] = []
+        self._assembler = FragmentAssembler(self._invalidate_gop)
+        self._fragment_timer: asyncio.TimerHandle | None = None
+        self._waiting_idr = True
+        self._sps: bytes | None = None
+        self._pps: bytes | None = None
         self._local_ssrc = secrets.randbits(32)
         self._source_ssrc: int | None = None
         self._base_seq = 0
@@ -267,26 +272,68 @@ class VideoTransport:
         else:
             self._handle_media(data)
 
-    def _handle_media(self, data: bytes) -> None:
-        if len(data) < 8:
-            return
-        frame_number = struct.unpack_from("<I", data)[0]
-        if self._frame_number is None:
-            self._frame_number = frame_number
-        elif frame_number != self._frame_number:
-            self._flush_rtp()
-            self._frame_number = frame_number
-        self._fragments.append(data[8:])
+    def _invalidate_gop(self) -> None:
+        self._waiting_idr = True
 
-    def _flush_rtp(self) -> None:
-        if not self._fragments:
+    def _schedule_fragment_expiry(self) -> None:
+        deadline = self._assembler.deadline
+        if deadline is None:
+            if self._fragment_timer is not None:
+                self._fragment_timer.cancel()
+                self._fragment_timer = None
+        elif self._fragment_timer is None:
+            self._fragment_timer = asyncio.get_running_loop().call_later(
+                max(0, deadline - time.monotonic()), self._expire_fragments
+            )
+
+    def _expire_fragments(self) -> None:
+        self._fragment_timer = None
+        for packet in self._assembler.expire(time.monotonic()):
+            self._handle_rtp(packet)
+        self._schedule_fragment_expiry()
+
+    def _handle_media(self, data: bytes) -> None:
+        now = time.monotonic()
+        for packet in self._assembler.expire(now):
+            self._handle_rtp(packet)
+        for packet in self._assembler.feed(data, now):
+            self._handle_rtp(packet)
+        self._schedule_fragment_expiry()
+
+    def _handle_rtp(self, packet: bytes) -> None:
+        payload = rtp_payload(packet)
+        if not payload:
+            self._invalidate_gop()
             return
-        rtp = b"".join(self._fragments)
-        self._fragments.clear()
-        if len(rtp) < 12 or rtp[0] >> 6 != 2:
+        source = struct.unpack_from(">I", packet, 8)[0]
+        if self._source_ssrc is not None and self._source_ssrc != source:
+            self._invalidate_gop()
+            self._sps = self._pps = None
+        # Count complete RTP packets even while dependent frames are withheld.
+        self._observe_rtp(packet)
+        records = decode_video_payload(payload, self.offer.aes_key)
+        if not records:
+            self._invalidate_gop()
             return
-        self._observe_rtp(rtp)
-        for record in decode_video_payload(rtp[12:], self.offer.aes_key):
+        for record in records:
+            units = _nals(record)
+            if not units:
+                self._invalidate_gop()
+                continue
+            kinds = {kind for kind, _ in units}
+            for kind, nal in units:
+                if kind == 7:
+                    self._sps = nal
+                elif kind == 8:
+                    self._pps = nal
+            if self._waiting_idr:
+                if 5 not in kinds or self._sps is None or self._pps is None:
+                    continue
+                prefix = (self._sps if 7 not in kinds else b"") + (
+                    self._pps if 8 not in kinds else b""
+                )
+                record = prefix + record
+                self._waiting_idr = False
             self.on_frame(record)
 
     def _observe_rtp(self, rtp: bytes) -> None:
@@ -367,6 +414,10 @@ class VideoTransport:
         return bytes(report)
 
     def close(self) -> None:
+        if self._fragment_timer is not None:
+            self._fragment_timer.cancel()
+            self._fragment_timer = None
+        self._assembler.clear()
         if self._report_task is not None:
             self._report_task.cancel()
             self._report_task = None
