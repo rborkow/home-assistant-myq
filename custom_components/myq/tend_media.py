@@ -89,6 +89,9 @@ class VideoTransport:
         self._report_task: asyncio.Task[None] | None = None
         self._assembler = FragmentAssembler(self._invalidate_gop)
         self._fragment_timer: asyncio.TimerHandle | None = None
+        self.media_discontinuities = 0
+        self.gop_recoveries = 0
+        self._recovering_gop = False
         self._waiting_idr = True
         self._sps: bytes | None = None
         self._pps: bytes | None = None
@@ -272,7 +275,35 @@ class VideoTransport:
         else:
             self._handle_media(data)
 
+    @property
+    def transport_kind(self) -> str:
+        """Describe observed peers without exposing addresses."""
+        peers = [channel.peer for channel in self.channels]
+        if len(peers) != 2 or any(peer is None for peer in peers):
+            return "connecting"
+        if all(peer is not None and peer[0] == self.camera.local_ip for peer in peers):
+            try:
+                _camera_lan_ip(self.camera.local_ip)
+            except TendStreamError:
+                pass
+            else:
+                return "lan"
+        if all(peer is not None and peer[0] == self._relay_ip for peer in peers):
+            return "cloud_relay"
+        return "p2p"
+
+    @property
+    def statistics(self) -> dict[str, int]:
+        """Return local counters; no network activity."""
+        return {
+            "rtp_packets": self._received,
+            "media_discontinuities": self.media_discontinuities,
+            "gop_recoveries": self.gop_recoveries,
+        }
+
     def _invalidate_gop(self) -> None:
+        self.media_discontinuities += 1
+        self._recovering_gop = True
         self._waiting_idr = True
 
     def _schedule_fragment_expiry(self) -> None:
@@ -334,6 +365,9 @@ class VideoTransport:
                 )
                 record = prefix + record
                 self._waiting_idr = False
+                if self._recovering_gop:
+                    self.gop_recoveries += 1
+                    self._recovering_gop = False
             self.on_frame(record)
 
     def _observe_rtp(self, rtp: bytes) -> None:

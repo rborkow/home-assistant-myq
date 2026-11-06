@@ -227,3 +227,50 @@ async def test_idr_before_second_gap_does_not_release_later_dependent_frames(
         assert transport._assembler.buffered == 0
     finally:
         transport.close()
+
+
+@pytest.mark.parametrize(
+    ("peers", "expected"),
+    [
+        ([], "connecting"),
+        ([("192.168.1.20", 123), ("192.168.1.20", 124)], "lan"),
+        ([("203.0.113.1", 123), ("203.0.113.1", 124)], "cloud_relay"),
+        ([("192.168.1.20", 123), ("203.0.113.1", 124)], "p2p"),
+    ],
+)
+def test_transport_diagnostics_use_observed_peers(
+    transport: VideoTransport, peers: list[tuple[str, int]], expected: str
+) -> None:
+    from unittest.mock import MagicMock
+
+    transport._relay_ip = "203.0.113.1"
+    transport.channels = [MagicMock(peer=peer) for peer in peers]
+    assert transport.transport_kind == expected
+    assert "192." not in repr(transport.statistics)
+
+
+def test_gop_diagnostics_count_recovery_only_after_complete_idr(
+    transport: VideoTransport,
+) -> None:
+    from unittest.mock import patch
+
+    sps = b"\x00\x00\x00\x01\x67s"
+    pps = b"\x00\x00\x00\x01\x68p"
+    idr = b"\x00\x00\x00\x01\x65i"
+    predicted = b"\x00\x00\x00\x01\x61p"
+    with patch("custom_components.myq.tend_media.decode_video_payload") as decode:
+        decode.return_value = [sps + pps + idr]
+        transport._handle_rtp(_rtp(1) + b"payload")
+        assert transport.statistics["gop_recoveries"] == 0
+        transport._invalidate_gop()
+        transport._invalidate_gop()
+        decode.return_value = [predicted]
+        transport._handle_rtp(_rtp(2) + b"payload")
+        assert transport.statistics["gop_recoveries"] == 0
+        decode.return_value = [idr]
+        transport._handle_rtp(_rtp(3) + b"payload")
+    assert transport.statistics == {
+        "rtp_packets": 3,
+        "media_discontinuities": 2,
+        "gop_recoveries": 1,
+    }

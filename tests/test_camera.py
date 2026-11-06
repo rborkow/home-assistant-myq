@@ -319,6 +319,10 @@ async def test_keypad_recording_enrolls_only_completed_clip_and_enforces_cooldow
     coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
     coordinator.config_entry.options = {"recording_cooldown": 60}
     coordinator.recordings.async_add = AsyncMock()
+    from custom_components.myq.keypad_state import KeypadState
+
+    state = KeypadState()
+    coordinator.keypad_state.return_value = state
     entity = MyQStandaloneCamera(coordinator, KEYPAD)
     entity.hass = hass
     entity.entity_id = "camera.test_keypad"
@@ -347,6 +351,8 @@ async def test_keypad_recording_enrolls_only_completed_clip_and_enforces_cooldow
         assert record.call_args.kwargs["enroll"] is coordinator.recordings.async_add
     await hass.async_block_till_done()
     assert len(events) == 1 and events[0].data["status"] == "completed"
+    assert state.recording_status == "completed"
+    assert state.last_clip == result.path and state.last_clip_at is not None
     unsubscribe()
 
 
@@ -357,6 +363,10 @@ async def test_cancel_recording_preserves_stream_and_does_not_enroll_partial(
     coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
     coordinator.config_entry.options = {}
     coordinator.recordings.async_add = AsyncMock()
+    from custom_components.myq.keypad_state import KeypadState
+
+    state = KeypadState()
+    coordinator.keypad_state.return_value = state
     entity = MyQStandaloneCamera(coordinator, KEYPAD)
     entity.hass = hass
     entity.entity_id = "camera.test_keypad"
@@ -375,11 +385,13 @@ async def test_cancel_recording_preserves_stream_and_does_not_enroll_partial(
     ):
         task = asyncio.create_task(entity.async_record_keypad(5))
         await started.wait()
+        assert state.recording_status == "recording"
         await entity.async_cancel_keypad_recording()
         assert task.cancelled()
     coordinator.recordings.async_add.assert_not_awaited()
     live.close.assert_not_awaited()
     assert entity._record_task is None
+    assert state.recording_status == "cancelled" and state.last_clip is None
 
 
 async def test_recording_rejects_non_keypad_without_opening_stream() -> None:
@@ -421,3 +433,65 @@ async def test_removal_closes_video_when_cancelled_waiting_for_recording_cleanup
         ha_stream.stop.assert_awaited_once()
         assert cast(object, entity._live_stream) is None
         assert entity.stream is None
+
+
+def test_keypad_runtime_diagnostics_preserve_state_and_sanitize_events() -> None:
+    from custom_components.myq.keypad_state import KeypadState
+
+    coordinator = MagicMock()
+    coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
+    state = KeypadState()
+    coordinator.keypad_state.return_value = state
+    entity = MyQStandaloneCamera(coordinator, KEYPAD)
+    assert state.phase == "idle"
+    entity._runtime_diagnostic("start", None)
+    assert bool(state.session_active) and state.transport == "connecting"
+    entity._runtime_diagnostic("phase", "waking")
+    entity._runtime_diagnostic("phase", "retrying_lan")
+    assert state.lan_recoveries == 0 and state.udp_retries == 1
+    entity._runtime_diagnostic("phase", "connected_lan")
+    assert state.phase == "awaiting_video" and state.last_transport == "lan"
+    entity._runtime_diagnostic("first_frame", 2.5)
+    entity._runtime_diagnostic("consumers", 2)
+    entity._runtime_diagnostic("rtp_packets", 15)
+    entity._runtime_diagnostic("gop_recoveries", 2)
+    entity._runtime_diagnostic("gop_recoveries", 2)
+    assert state.lan_recoveries == 2
+    assert state.phase == "streaming_lan"
+    assert state.first_frame_seconds == 2.5 and state.active_consumers == 2
+    assert state.rtp_packets == 15 and not state.fallback_used
+    entity._runtime_diagnostic("error", "VideoEnded")
+    entity._runtime_diagnostic("end", None)
+    entity._runtime_diagnostic("consumers", 0)
+    assert not state.session_active and state.transport == "idle"
+    assert state.phase == "error" and state.session_errors == 1
+    assert state.last_failure == "VideoEnded" and state.failure_at is not None
+    entity._runtime_diagnostic("start", None)
+    assert state.last_error is None and state.last_failure == "VideoEnded"
+    assert bool(state.first_frame_seconds is None)
+    entity._runtime_diagnostic("end", None)
+    assert state.phase == "idle"
+
+
+def test_keypad_recording_and_preview_diagnostics_do_not_open_video() -> None:
+    from custom_components.myq.keypad_state import KeypadState
+
+    coordinator = MagicMock()
+    coordinator.cameras = {KEYPAD.serial_number: KEYPAD}
+    state = KeypadState()
+    coordinator.keypad_state.return_value = state
+    coordinator.async_keypad_changed.side_effect = RuntimeError("private listener error")
+    entity = MyQStandaloneCamera(coordinator, KEYPAD)
+    entity._recording_diagnostic("recording")
+    assert state.recording_status == "recording" and bool(state.last_clip is None)
+    entity._recording_diagnostic("completed", "/media/myq-keypad/test.mp4")
+    assert state.last_clip_at is not None
+    entity._recording_diagnostic("cancelled")
+    assert state.recording_status == "cancelled"
+    assert state.last_clip == "/media/myq-keypad/test.mp4"
+    assert entity._preview is not None
+    entity._preview._frame_at = 100
+    entity._update_snapshot_diagnostic()
+    assert state.snapshot_at == 100
+    assert entity._live_stream is None
+    coordinator.client.async_prepare_keypad.assert_not_called()

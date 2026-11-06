@@ -25,8 +25,16 @@ _STOP_TIMEOUT = 1
 class TendSession:
     """A single camera connection; an empty frame signals that it ended."""
 
-    def __init__(self, on_frame: Callable[[bytes], None], *, lan_only: bool = False) -> None:
+    def __init__(
+        self,
+        on_frame: Callable[[bytes], None],
+        *,
+        lan_only: bool = False,
+        on_phase: Callable[[str], None] | None = None,
+    ) -> None:
         self._on_frame = on_frame
+        self._on_phase = on_phase
+        self._statistics: dict[str, int] = {}
         self._lan_only = lan_only
         self._connection = CxsConnection(self._on_lost)
         self._camera: TendCamera | None = None
@@ -43,11 +51,13 @@ class TendSession:
         on_frame: Callable[[bytes], None],
         *,
         lan_only: bool = False,
+        on_phase: Callable[[str], None] | None = None,
     ) -> TendSession:
         """Connect to the camera attached to an opener, releasing failed attempts."""
-        session = cls(on_frame, lan_only=lan_only)
+        session = cls(on_frame, lan_only=lan_only, on_phase=on_phase)
         ready = False
         try:
+            session._phase("signaling")
             await session._connection.login(token)
             session._camera = select_camera(
                 parse_cameras(session._connection.properties), opener_serial
@@ -63,20 +73,36 @@ class TendSession:
             if not ready:
                 await session.close()
 
+    def _phase(self, phase: str) -> None:
+        if self._on_phase is not None:
+            try:
+                self._on_phase(phase)
+            except Exception as error:
+                _LOGGER.debug("Camera phase callback failed: %s", type(error).__name__)
+
+    @property
+    def statistics(self) -> dict[str, int]:
+        if self._transport is not None:
+            return self._transport.statistics
+        return self._statistics
+
     async def _start(self) -> None:
         camera = self._camera
         assert camera is not None
         for attempt in range(2):
+            self._phase("offer")
             self._offer = await request_video(self._connection, camera)
             self._transport = VideoTransport(
                 camera, self._offer, self._on_frame, lan_only=self._lan_only
             )
             try:
+                self._phase("udp_handshake")
                 await self._transport.punch(_PUNCH_TIMEOUT)
             except TendStreamError:
                 await self._stop_media()
                 if attempt:
                     raise
+                self._phase("retrying_lan" if self._lan_only else "retrying_udp")
                 await asyncio.sleep(_RETRY_DELAY)
                 continue
             await self._connection.command(
@@ -88,6 +114,7 @@ class TendSession:
                 f"modify-device|{camera.device_id}|QTY=3+FPS=20+SIZE=0+SAVE=0|",
                 camera.destination,
             )
+            self._phase("connected_" + self._transport.transport_kind)
             return
 
     def _on_lost(self, connection: CxsConnection) -> None:
@@ -108,6 +135,7 @@ class TendSession:
             _LOGGER.debug("Tend camera remote stop was not acknowledged")
         finally:
             if self._transport is not None:
+                self._statistics = self._transport.statistics
                 self._transport.close()
                 self._transport = None
             self._offer = None
