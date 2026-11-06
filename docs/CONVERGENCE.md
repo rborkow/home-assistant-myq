@@ -14,8 +14,17 @@ There is no second keypad receiver, separate OAuth owner, or Android runtime her
 
 PRs #14 and #15 preserve #11 unchanged and link their follow-up-only diffs. They
 should be rebased after #11 lands. The combined branch has 308 passing tests.
-GitHub currently reports `action_required` for upstream workflows; local checks
-are not a substitute for upstream CI, Hassfest, or HACS validation.
+Upstream workflows still require maintainer approval. The identical workflows
+ran successfully on this fork at combined commit `1fe5bff`:
+
+- [CI: clean dependency installation, Ruff, mypy and 308 tests](https://github.com/rborkow/home-assistant-myq/actions/runs/42279512346)
+- [Containerized Hassfest](https://github.com/rborkow/home-assistant-myq/actions/runs/42279512341)
+- [HACS repository validation](https://github.com/rborkow/home-assistant-myq/actions/runs/42279512375)
+
+These validate the combined candidate, not each standalone contribution. The
+clean runner exposed a missing `ha-ffmpeg` test dependency, now declared. HACS
+required enabling Issues and adding topics on this fork; no workflow permission
+policies or upstream approval settings were changed.
 
 The RTP contribution was also tested offline against 550 previously captured
 keypad media datagrams. It recovered 85 fully decoded H.264 frames at 1152×864,
