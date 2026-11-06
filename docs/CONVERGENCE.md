@@ -13,10 +13,11 @@ There is no second keypad receiver, separate OAuth owner, or Android runtime her
 | Bounded recording and owned-file retention | [#15](https://github.com/bvdcode/home-assistant-myq/pull/15) | Draft; depends on #11 | 273 tests, Ruff, mypy |
 | On-demand keypad wake | [#16](https://github.com/bvdcode/home-assistant-myq/pull/16) | Draft; depends on #11 | 268 tests, Ruff, mypy |
 
-PRs #14 and #15 preserve #11 unchanged and link their follow-up-only diffs. They
-should be rebased after #11 lands. The combined branch has 308 passing tests.
-Upstream workflows still require maintainer approval. The identical workflows
-ran successfully on this fork at combined commit `1fe5bff`:
+PRs #14, #15, and #16 preserve #11 unchanged and link their follow-up-only diffs.
+They should be rebased after #11 lands. The combined branch has 323 passing local
+tests. Upstream workflows still require maintainer approval. The following links
+record successful hosted validation of historical pre-wake commit `1fe5bff`;
+current-head results are tracked in [the validation PR](https://github.com/rborkow/home-assistant-myq/pull/1):
 
 - [CI: clean dependency installation, Ruff, mypy and 308 tests](https://github.com/rborkow/home-assistant-myq/actions/runs/42279512346)
 - [Containerized Hassfest](https://github.com/rborkow/home-assistant-myq/actions/runs/42279512341)
