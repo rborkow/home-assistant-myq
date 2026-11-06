@@ -486,3 +486,18 @@ def _entry_data() -> dict[str, object]:
             "expires_at": 0.0,
         },
     }
+
+
+async def test_lan_only_option_is_opt_in_and_preserves_other_options(hass: HomeAssistant) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={"unrelated": 7})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    schema = result["data_schema"]
+    assert schema is not None
+    assert schema({}) == {"camera_lan_only": False}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"camera_lan_only": True}
+    )
+    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert entry.options == {"unrelated": 7, "camera_lan_only": True}

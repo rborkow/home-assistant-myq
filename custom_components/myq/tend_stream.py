@@ -54,8 +54,15 @@ class _Viewer:
 class TendLiveStream:
     """Expose one TC camera session to multiple local stream consumers."""
 
-    def __init__(self, opener_serial: str, token_supplier: Callable[[], Awaitable[str]]) -> None:
+    def __init__(
+        self,
+        opener_serial: str,
+        token_supplier: Callable[[], Awaitable[str]],
+        *,
+        lan_only: bool = False,
+    ) -> None:
         self._opener_serial = opener_serial
+        self._lan_only = lan_only
         self._token_supplier = token_supplier
         self._runner: web.AppRunner | None = None
         self._url: str | None = None
@@ -106,7 +113,10 @@ class TendLiveStream:
             if self._session is None or self._session.ended:
                 await self._close_session()
                 self._session = await TendSession.open(
-                    self._opener_serial, await self._token_supplier(), self._on_frame
+                    self._opener_serial,
+                    await self._token_supplier(),
+                    self._on_frame,
+                    lan_only=self._lan_only,
                 )
             viewer = _Viewer()
             self._viewers.add(viewer)

@@ -126,3 +126,16 @@ pytest
 This is a community-maintained project and is not affiliated with, endorsed by,
 or associated with The Chamberlain Group LLC. MyQ, Chamberlain, and LiftMaster
 are trademarks of their respective owners.
+
+### Restrict camera video to the LAN
+
+In **Settings → Devices & services → MyQ → Configure**, enable **Require LAN-only
+camera video** to accept video only from the camera's RFC1918 IPv4 address reported
+by authenticated signaling. The selected UDP peer's address and port are pinned;
+public or different private candidates are not used. If that LAN path is missing
+or unreachable, live playback fails instead of choosing a public candidate.
+
+This option is off by default to preserve existing routing behavior. Changing it
+reloads the integration and closes active camera sessions. Cloud authorization,
+signaling and connection setup remain necessary, and this option does not prevent
+independent uploads by the camera. It governs live video, not cloud snapshots.

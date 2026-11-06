@@ -15,7 +15,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER
+from .const import CONF_CAMERA_LAN_ONLY, DOMAIN, MANUFACTURER
 from .coordinator import MyQDataUpdateCoordinator
 from .entity import MyQEntity
 from .exceptions import MyQError
@@ -106,7 +106,13 @@ class _MyQCameraMixin(Camera):
             return None
         if self._live_stream is None:
             self._live_stream = TendLiveStream(
-                self._opener_serial, self.coordinator.client.async_access_token
+                self._opener_serial,
+                self.coordinator.client.async_access_token,
+                lan_only=bool(
+                    self.coordinator.config_entry.options.get(CONF_CAMERA_LAN_ONLY, False)
+                )
+                if self.coordinator.config_entry
+                else False,
             )
         return await self._live_stream.source_url()
 

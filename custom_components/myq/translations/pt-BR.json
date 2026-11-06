@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "Não foi possível obter uma imagem da câmera MyQ."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Camera video transport",
+        "description": "Require video to come from the camera’s private LAN address. Cloud authorization and connection setup are still required. If the LAN path is unavailable, playback fails instead of using a public candidate. Changing this option closes active camera sessions. This setting applies to live video only; snapshots still use the cloud.",
+        "data": {
+          "camera_lan_only": "Require LAN-only camera video"
+        }
+      }
+    }
   }
 }

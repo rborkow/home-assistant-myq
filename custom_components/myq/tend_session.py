@@ -25,8 +25,9 @@ _STOP_TIMEOUT = 1
 class TendSession:
     """A single camera connection; an empty frame signals that it ended."""
 
-    def __init__(self, on_frame: Callable[[bytes], None]) -> None:
+    def __init__(self, on_frame: Callable[[bytes], None], *, lan_only: bool = False) -> None:
         self._on_frame = on_frame
+        self._lan_only = lan_only
         self._connection = CxsConnection(self._on_lost)
         self._camera: TendCamera | None = None
         self._offer: VideoOffer | None = None
@@ -36,10 +37,15 @@ class TendSession:
 
     @classmethod
     async def open(
-        cls, opener_serial: str, token: str, on_frame: Callable[[bytes], None]
+        cls,
+        opener_serial: str,
+        token: str,
+        on_frame: Callable[[bytes], None],
+        *,
+        lan_only: bool = False,
     ) -> TendSession:
-        """Connect to an opener's camera (or, with no opener, the unattached one)."""
-        session = cls(on_frame)
+        """Connect to the camera attached to an opener, releasing failed attempts."""
+        session = cls(on_frame, lan_only=lan_only)
         ready = False
         try:
             await session._connection.login(token)
@@ -62,7 +68,9 @@ class TendSession:
         assert camera is not None
         for attempt in range(2):
             self._offer = await request_video(self._connection, camera)
-            self._transport = VideoTransport(camera, self._offer, self._on_frame)
+            self._transport = VideoTransport(
+                camera, self._offer, self._on_frame, lan_only=self._lan_only
+            )
             try:
                 await self._transport.punch(_PUNCH_TIMEOUT)
             except TendStreamError:

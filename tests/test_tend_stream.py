@@ -177,7 +177,7 @@ async def test_close_cancels_hung_setup(live: TendLiveStream, open_session: Asyn
     started = asyncio.Event()
     cancelled = asyncio.Event()
 
-    async def hang(*args: object) -> None:
+    async def hang(*args: object, **kwargs: object) -> None:
         started.set()
         try:
             await asyncio.Event().wait()
@@ -232,3 +232,17 @@ def test_queue_end_survives_backpressure() -> None:
     queued = [viewer.frames.get_nowait() for _ in range(viewer.frames.qsize())]
     assert queued[-1] == b""
     assert b"late" not in queued
+
+
+async def test_lan_only_applies_to_every_new_session(open_session: AsyncMock) -> None:
+    stream = TendLiveStream("door-1", AsyncMock(return_value="token"), lan_only=True)
+    try:
+        await stream._subscribe()
+        assert open_session.await_args is not None
+        assert open_session.await_args.kwargs == {"lan_only": True}
+        open_session.return_value.ended = True
+        await stream._subscribe()
+        assert open_session.await_count == 2
+        assert open_session.await_args.kwargs == {"lan_only": True}
+    finally:
+        await stream.close()

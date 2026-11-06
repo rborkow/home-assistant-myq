@@ -57,7 +57,9 @@ async def test_live_stream_is_available_only_for_tc_camera() -> None:
             return_value="http://127.0.0.1:1234/test.h264"
         )
         assert await tc_entity.stream_source() == "http://127.0.0.1:1234/test.h264"
-        stream_class.assert_called_once_with("door-1", coordinator.client.async_access_token)
+        stream_class.assert_called_once_with(
+            "door-1", coordinator.client.async_access_token, lan_only=False
+        )
 
     other = replace(DOOR, camera=MyQCamera("GW-0005-10000001", True))
     other_entity, _ = _entity(other)
@@ -217,6 +219,7 @@ async def test_setup_adds_camera_only_for_doors_with_cameras(hass: HomeAssistant
 
 def _entity(door: GarageDoor) -> tuple[MyQGarageCamera, MagicMock]:
     coordinator = MagicMock()
+    coordinator.config_entry = None
     coordinator.data = {door.serial_number: door}
     coordinator.client.async_get_camera_image = AsyncMock(return_value=IMAGE)
     return MyQGarageCamera(coordinator, door), coordinator
@@ -287,3 +290,14 @@ async def test_unattached_camera_streams_without_an_opener_serial() -> None:
         stream_class.return_value.source_url = AsyncMock(return_value="http://127.0.0.1/x")
         assert await entity.stream_source() == "http://127.0.0.1/x"
     assert stream_class.call_args.args[0] == ""
+
+
+async def test_camera_passes_lan_only_option_to_shared_stream() -> None:
+    entity, coordinator = _entity(DOOR)
+    coordinator.config_entry = MockConfigEntry(domain=DOMAIN, options={"camera_lan_only": True})
+    with patch("custom_components.myq.camera.TendLiveStream") as factory:
+        factory.return_value.source_url = AsyncMock(return_value="http://127.0.0.1/video")
+        await entity.stream_source()
+        factory.assert_called_once_with(
+            "door-1", coordinator.client.async_access_token, lan_only=True
+        )
