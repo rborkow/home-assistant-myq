@@ -46,14 +46,25 @@ after each test. These results validate this combined candidate on one keypad,
 not ordinary-camera compatibility or sustained reliability.
 
 The sleeping-keypad test without an explicit wake authenticated and received an
-offer but timed out during UDP setup. On-demand wake is therefore required before
-migration; the successful test used a separate probe wake, not an integrated hook.
-Snapshots must remain passive, and wake must occur only when starting a shared
-live session for a viewer or recording.
+offer but timed out during UDP setup. The candidate now includes on-demand wake
+inside shared-session startup, with a 35-second deadline and cancellation cleanup.
+The initial 10/30-second tests used a separate probe wake.
+
+The integrated wake helper and shared-stream implementation at `f79d72e` also
+passed an isolated live test: two concurrent consumers caused one wake and one
+session. One consumer received 202 frames; the other received 102 before being
+cancelled, while the first continued. All 202 captured frames decoded cleanly at
+1152×864. Source-URL creation was passive, a keyframe was cached, and idle shutdown
+closed the session (the probe shortened the idle delay to two seconds). Both
+channels were pinned to the camera LAN address and no cloud-media TCP connection
+was observed. The probe used the actual candidate helper with a read-only-token
+HTTP adapter, not the installed HA entity or its OAuth refresh path. Every loaded
+module hash matches the committed candidate; this is not full HA/HLS/MP4 validation.
 
 Full local Hassfest against Home Assistant 2026.7.4 found a missing optional FFmpeg
 dependency declaration. That is fixed in the preview, recording, and combined
-branches. The combined branch passes 308 tests, Ruff, mypy, and that validator.
+branches. The pre-wake combined branch passed 308 tests and hosted CI/Hassfest/HACS;
+the wake candidate adds lifecycle and bounded-response coverage (322 tests).
 Private storage migration and dashboard changes remain staged, not applied.
 
 ## Before replacing the installed fork
