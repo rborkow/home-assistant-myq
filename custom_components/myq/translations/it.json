@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "Impossibile recuperare un’immagine dalla telecamera MyQ."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Trasmissione video della videocamera",
+        "description": "Richiede che il video in diretta provenga dall’indirizzo IP privato della videocamera sulla rete locale. L’autorizzazione e la configurazione della connessione richiedono ancora l’accesso al cloud. Se la videocamera non è raggiungibile sulla rete locale, la riproduzione non riesce e non viene usato un indirizzo pubblico. La modifica di questa opzione chiude le sessioni attive della videocamera. Le istantanee continuano a essere recuperate dal cloud.",
+        "data": {
+          "camera_lan_only": "Usa solo la rete locale per il video in diretta"
+        }
+      }
+    }
   }
 }

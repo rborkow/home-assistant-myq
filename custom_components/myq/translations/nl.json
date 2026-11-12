@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "De momentopname van de MyQ-camera kon niet worden opgehaald."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Videoverbinding van de camera",
+        "description": "Vereis dat livevideo afkomstig is van het privé-IP-adres van de camera op het lokale netwerk. Voor autorisatie en het opzetten van de verbinding blijft toegang tot de cloud nodig. Als de camera niet bereikbaar is op het lokale netwerk, mislukt het afspelen zonder een openbaar adres te gebruiken. Als je deze instelling wijzigt, worden actieve camerasessies gesloten. Momentopnamen komen nog steeds uit de cloud.",
+        "data": {
+          "camera_lan_only": "Livevideo alleen via het lokale netwerk toestaan"
+        }
+      }
+    }
   }
 }

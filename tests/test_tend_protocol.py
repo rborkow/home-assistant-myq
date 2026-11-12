@@ -14,6 +14,7 @@ from custom_components.myq.tend_media import VideoTransport, _Channel
 from custom_components.myq.tend_protocol import (
     CxsPacket,
     TendCamera,
+    TendCameraNotFoundError,
     TendCameraTarget,
     TendStreamError,
     VideoOffer,
@@ -208,3 +209,12 @@ def test_stream_target_requires_exactly_one_identity(
 ) -> None:
     with pytest.raises(ValueError):
         TendCameraTarget(opener, destination)
+
+
+def test_missing_camera_reports_counts_without_identifiers() -> None:
+    camera = TendCamera("account", "account:mac1", "key", "192.0.2.1", "other-opener")
+    with pytest.raises(TendCameraNotFoundError) as raised:
+        TendCameraTarget(opener_serial="missing").select([camera])
+    assert str(raised.value) == (
+        "TC camera was not listed by Tend signaling (1 listed, 1 with an opener)"
+    )

@@ -26,6 +26,7 @@ from .const import (
 )
 from .exceptions import MyQApiError, MyQAuthenticationError
 from .models import OAuthTokens
+from .request_limits import RequestCooldown
 
 TokenListener = Callable[[OAuthTokens], None]
 
@@ -46,6 +47,7 @@ class MyQAuth:
         self._tokens = tokens
         self._token_listener = token_listener
         self._refresh_lock = asyncio.Lock()
+        self._request_cooldown = RequestCooldown()
 
     async def async_access_token(self) -> str:
         if self._tokens.expires_at - TOKEN_EXPIRY_MARGIN.total_seconds() > time.time():
@@ -59,6 +61,7 @@ class MyQAuth:
         payload = await _post_json(
             self._session,
             f"{IDENTITY_BASE_URL}/connect/token",
+            cooldown=self._request_cooldown,
             data={
                 "client_id": OAUTH_CLIENT_ID,
                 "scope": OAUTH_SCOPE,
@@ -80,6 +83,7 @@ async def async_exchange_code(session: ClientSession, code: str, verifier: str) 
     payload = await _post_json(
         session,
         f"{IDENTITY_BASE_URL}/connect/token",
+        cooldown=RequestCooldown(),
         data={
             "client_id": OAUTH_CLIENT_ID,
             "scope": OAUTH_SCOPE,
@@ -102,6 +106,7 @@ async def _mint_app_check_token(session: ClientSession) -> str:
     payload = await _post_json(
         session,
         endpoint,
+        cooldown=RequestCooldown(),
         params=profile.parameters,
         json_body=profile.payload,
         headers=profile.headers,
@@ -116,11 +121,13 @@ async def _post_json(
     session: ClientSession,
     url: str,
     *,
+    cooldown: RequestCooldown,
     data: Mapping[str, str] | None = None,
     params: Mapping[str, str] | None = None,
     json_body: Mapping[str, str] | None = None,
     headers: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
+    cooldown.check(url)
     async with session.post(
         url,
         data=data,
@@ -129,6 +136,7 @@ async def _post_json(
         headers=headers,
     ) as response:
         body = await response.text()
+        cooldown.check_response(url, response.status, response.headers)
         try:
             parsed = json.loads(body)
         except json.JSONDecodeError as error:

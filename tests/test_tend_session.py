@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from custom_components.myq.exceptions import MyQApiError
 from custom_components.myq.tend_protocol import TendCameraTarget, TendStreamError, VideoOffer
 from custom_components.myq.tend_session import TendSession
 
@@ -123,6 +124,20 @@ async def test_cancelled_setup_releases_offer(connection: MagicMock, transport: 
     connection.aclose.assert_awaited_once()
 
 
+async def test_session_passes_lan_policy_to_transport(connection: MagicMock) -> None:
+    with (
+        patch("custom_components.myq.tend_session.VideoTransport") as factory,
+        patch("custom_components.myq.tend_session.request_video", new_callable=AsyncMock) as offer,
+    ):
+        offer.return_value = VideoOffer("relay.example", 30000, "0123456789abcdef", "LOG-test")
+        factory.return_value.punch = AsyncMock()
+        session = await TendSession.open(
+            TendCameraTarget(opener_serial="door-1"), "token", MagicMock(), lan_only=True
+        )
+        assert factory.call_args.kwargs == {"lan_only": True}
+        await session.close()
+
+
 async def test_session_selects_exact_destination_among_unattached_cameras(
     connection: MagicMock, transport: MagicMock
 ) -> None:
@@ -145,5 +160,120 @@ async def test_session_selects_exact_destination_among_unattached_cameras(
 async def test_missing_destination_never_selects_another_camera(connection: MagicMock) -> None:
     with pytest.raises(TendStreamError, match="not listed"):
         await TendSession.open(TendCameraTarget(destination="absent:mac"), "token", MagicMock())
+    connection.command.assert_not_awaited()
+    connection.aclose.assert_awaited_once()
+
+
+async def test_opener_match_does_not_resolve_camera_alias(
+    connection: MagicMock, transport: MagicMock
+) -> None:
+    fallback = AsyncMock(side_effect=AssertionError("Unexpected metadata request"))
+    session = await TendSession.open(
+        TendCameraTarget(opener_serial="door-1"),
+        "token",
+        MagicMock(),
+        fallback_target_supplier=fallback,
+    )
+    assert session._transport is transport
+    fallback.assert_not_awaited()
+    connection.login.assert_awaited_once()
+    await session.close()
+
+
+async def test_missing_opener_resolves_exact_camera_on_the_same_connection(
+    connection: MagicMock, transport: MagicMock
+) -> None:
+    async def resolve() -> TendCameraTarget:
+        connection.login.assert_awaited_once()
+        return TendCameraTarget(destination="alias:mac1")
+
+    fallback = AsyncMock(side_effect=resolve)
+    session = await TendSession.open(
+        TendCameraTarget(opener_serial="missing"),
+        "token",
+        MagicMock(),
+        fallback_target_supplier=fallback,
+    )
+    fallback.assert_awaited_once()
+    connection.login.assert_awaited_once()
+    connection.command.assert_any_await("start-video-receive|alias|9|", "alias:mac1", "LOG-test")
+    assert session._transport is transport
+    await session.close()
+
+
+async def test_ambiguous_opener_never_resolves_an_alias(connection: MagicMock) -> None:
+    connection.properties["device-info-list"] += (
+        "\nalias:mac3,AES=0123456789abcdef+GSN=door-1+LIP=192.0.2.3"
+    )
+    fallback = AsyncMock()
+    with pytest.raises(TendStreamError, match="ambiguous"):
+        await TendSession.open(
+            TendCameraTarget(opener_serial="door-1"),
+            "token",
+            MagicMock(),
+            fallback_target_supplier=fallback,
+        )
+    fallback.assert_not_awaited()
+    connection.command.assert_not_awaited()
+    connection.aclose.assert_awaited_once()
+
+
+@pytest.mark.parametrize("duplicate_alias", [False, True])
+async def test_unmatched_or_ambiguous_alias_does_not_start_another_camera(
+    connection: MagicMock, duplicate_alias: bool
+) -> None:
+    if duplicate_alias:
+        connection.properties["device-info-list"] += (
+            "\nalias:mac1,AES=0123456789abcdef+GSN=other+LIP=192.0.2.3"
+        )
+    destination = "alias:mac1" if duplicate_alias else "alias:missing"
+    fallback = AsyncMock(return_value=TendCameraTarget(destination=destination))
+    with pytest.raises(TendStreamError, match="ambiguous" if duplicate_alias else "not listed"):
+        await TendSession.open(
+            TendCameraTarget(opener_serial="missing"),
+            "token",
+            MagicMock(),
+            fallback_target_supplier=fallback,
+        )
+    connection.command.assert_not_awaited()
+    connection.aclose.assert_awaited_once()
+
+
+@pytest.mark.parametrize("error", [TimeoutError(), MyQApiError("Camera lookup failed")])
+async def test_alias_lookup_failure_releases_signaling(
+    connection: MagicMock, error: MyQApiError | TimeoutError
+) -> None:
+    fallback = AsyncMock(side_effect=error)
+    with pytest.raises(type(error)):
+        await TendSession.open(
+            TendCameraTarget(opener_serial="missing"),
+            "token",
+            MagicMock(),
+            fallback_target_supplier=fallback,
+        )
+    connection.command.assert_not_awaited()
+    connection.aclose.assert_awaited_once()
+
+
+async def test_cancelled_alias_lookup_releases_signaling(connection: MagicMock) -> None:
+    resolving = asyncio.Event()
+
+    async def resolve() -> TendCameraTarget:
+        resolving.set()
+        await asyncio.Event().wait()
+        return TendCameraTarget(destination="alias:mac1")
+
+    opening = asyncio.create_task(
+        TendSession.open(
+            TendCameraTarget(opener_serial="missing"),
+            "token",
+            MagicMock(),
+            fallback_target_supplier=resolve,
+        )
+    )
+    await resolving.wait()
+    opening.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await opening
     connection.command.assert_not_awaited()
     connection.aclose.assert_awaited_once()

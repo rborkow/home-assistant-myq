@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "Nie udało się pobrać zdjęcia z kamery MyQ."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Transmisja obrazu z kamery",
+        "description": "Wymaga, aby obraz na żywo pochodził z prywatnego adresu IP kamery w sieci lokalnej. Autoryzacja i nawiązanie połączenia nadal wymagają dostępu do chmury. Jeśli kamera jest niedostępna w sieci lokalnej, odtwarzanie kończy się niepowodzeniem bez użycia publicznego adresu. Zmiana tej opcji zamyka aktywne sesje kamery. Zdjęcia nadal są pobierane z chmury.",
+        "data": {
+          "camera_lan_only": "Odbieraj obraz na żywo tylko przez sieć lokalną"
+        }
+      }
+    }
   }
 }

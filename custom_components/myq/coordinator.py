@@ -17,8 +17,9 @@ from .const import (
     COMMAND_UPDATE_TIMEOUT,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
+    MAX_UPDATE_RETRY_INTERVAL,
 )
-from .exceptions import MyQApiError, MyQAuthenticationError
+from .exceptions import MyQApiError, MyQAuthenticationError, MyQRateLimitError
 from .models import MyQCamera
 from .runtime import MyQConfigEntry, MyQCoordinatorData
 
@@ -50,6 +51,7 @@ class MyQDataUpdateCoordinator(DataUpdateCoordinator[MyQCoordinatorData]):
         self.client = client
         self.cameras: dict[str, MyQCamera] = {}
         self._pending_commands: dict[str, _PendingCommand] = {}
+        self._failure_retry_interval = DEFAULT_UPDATE_INTERVAL
 
     @callback
     def async_schedule_command_updates(
@@ -90,7 +92,16 @@ class MyQDataUpdateCoordinator(DataUpdateCoordinator[MyQCoordinatorData]):
             ) from error
         except (ClientError, MyQApiError, TimeoutError) as error:
             self._stop_command_updates(pending_at_request)
-            raise UpdateFailed("Unable to update MyQ garage doors") from error
+            self._failure_retry_interval = min(
+                self._failure_retry_interval * 2, MAX_UPDATE_RETRY_INTERVAL
+            )
+            retry_after = self._failure_retry_interval.total_seconds()
+            if isinstance(error, MyQRateLimitError):
+                retry_after = max(retry_after, error.retry_after)
+            raise UpdateFailed(
+                "Unable to update MyQ garage doors", retry_after=retry_after
+            ) from error
+        self._failure_retry_interval = DEFAULT_UPDATE_INTERVAL
         self.cameras = {camera.serial_number: camera for camera in devices.standalone_cameras}
         data = {door.serial_number: door for door in devices.doors}
         now = monotonic()

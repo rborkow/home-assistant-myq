@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "Billedet fra MyQ-kameraet kunne ikke hentes."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Overførsel af kameravideo",
+        "description": "Kræv, at livevideo kommer fra kameraets private IP-adresse på lokalnetværket. Godkendelse og oprettelse af forbindelsen kræver stadig adgang til skyen. Hvis kameraet ikke kan nås på lokalnetværket, mislykkes afspilningen uden at bruge en offentlig adresse. Ændring af indstillingen lukker aktive kameraforbindelser. Stillbilleder hentes fortsat fra skyen.",
+        "data": {
+          "camera_lan_only": "Kræv livevideo via lokalnetværket"
+        }
+      }
+    }
   }
 }

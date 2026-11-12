@@ -2,6 +2,26 @@
 
 <!-- version list -->
 
+## v0.2.11 (2026-11-08)
+
+Reduce MyQ cloud request volume
+- Cache account discovery for 15 minutes and poll device state every 2 minutes.
+- Share camera snapshots across viewers for 30 seconds.
+- Honor service retry delays and back off failed background updates.
+- Preserve immediate garage movement feedback and fast polling after commands.
+
+
+## v0.2.10 (2026-11-06)
+
+Add standalone MyQ camera support
+
+- Discover standalone cameras, including myQ Video Keypad, and allow accounts without garage doors.
+- Add separate camera devices with snapshots and experimental TC live video.
+- Select video streams by exact camera identity and reject ambiguous matches.
+- Update setup translations, camera documentation, and regression tests.
+- Highlight project support at the top of the README.
+
+
 ## v0.2.9 (2026-11-02)
 
 Preserve garage movement feedback during delayed starts

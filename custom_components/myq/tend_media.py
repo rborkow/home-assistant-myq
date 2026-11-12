@@ -29,6 +29,19 @@ from .tend_protocol import (
 
 _LOGGER = logging.getLogger(__name__)
 _RTP_SEQUENCE_MODULUS = 1 << 16
+_LAN_NETWORKS = tuple(
+    ipaddress.IPv4Network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
+
+
+def _camera_lan_ip(value: str) -> str:
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError as error:
+        raise TendStreamError("Camera has no valid LAN IPv4 address") from error
+    if not any(address in network for network in _LAN_NETWORKS):
+        raise TendStreamError("Camera address is not RFC1918 LAN IPv4")
+    return str(address)
 
 
 @dataclass(slots=True)
@@ -56,9 +69,16 @@ class VideoTransport:
     """LAN hole punching, RTP assembly, AES decoding, and RTCP reports."""
 
     def __init__(
-        self, camera: TendCamera, offer: VideoOffer, on_frame: Callable[[bytes], None]
+        self,
+        camera: TendCamera,
+        offer: VideoOffer,
+        on_frame: Callable[[bytes], None],
+        *,
+        lan_only: bool = False,
     ) -> None:
         self.camera = camera
+        self._lan_only = lan_only
+        self._lan_ip = _camera_lan_ip(camera.local_ip) if lan_only else ""
         self.offer = offer
         self.on_frame = on_frame
         self.channels: list[_Channel] = []
@@ -98,10 +118,14 @@ class VideoTransport:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             probe.setblocking(False)
-            await loop.sock_connect(probe, (relay_ip, 9))
+            await loop.sock_connect(probe, (self._lan_ip if self._lan_only else relay_ip, 9))
             self.local_ip = probe.getsockname()[0]
         finally:
             probe.close()
+        if self._lan_only and self.local_ip == self._lan_ip:
+            raise TendStreamError("Camera LAN address points to this host")
+        # A channel registers with the broker and exchanges media with the camera.
+        # Wildcard binding lets the kernel choose a source address for each destination.
         for _ in range(100):
             media = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             control = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -176,6 +200,31 @@ class VideoTransport:
         if len(self.channels) < 2:
             return
         channel = self.channels[int(control)]
+        if self._lan_only:
+            if data[:4] == _SDNK_MAGIC and len(data) >= 20 and data[7] == 2:
+                if (
+                    remote != (self._relay_ip, self.offer.relay_port)
+                    or channel.peer is not None
+                    or len(data) != 110
+                    or data[:7] != _SDNK_MAGIC + b"\x01\x00\x00"
+                    or struct.unpack_from(">I", data, 16)[0] != 90
+                ):
+                    return
+                # Only the private identity supplied by authenticated TLS signaling is eligible.
+                channel.peer = next(
+                    (peer for peer in parse_peer_packet(data) if peer[0] == self._lan_ip), None
+                )
+                if channel.peer is not None:
+                    media_id = _media_id(self.camera.device_id)
+                    self._send(
+                        channel,
+                        _sdnk(100, bytes((1, int(control))) + b"V" + media_id + media_id),
+                        remote,
+                    )
+                return
+            # Broker packets never carry media; neither IP nor port may change after selection.
+            if channel.peer is None or remote != channel.peer:
+                return
         # Only the relay and the camera addresses it announced may set peers or send media.
         if remote[0] != self._relay_ip and remote[0] not in self._camera_ips:
             return

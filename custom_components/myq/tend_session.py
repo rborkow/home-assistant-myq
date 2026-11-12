@@ -7,7 +7,15 @@ import logging
 from collections.abc import Callable
 
 from .tend_media import VideoTransport
-from .tend_protocol import TendCamera, TendCameraTarget, TendStreamError, VideoOffer, parse_cameras
+from .tend_protocol import (
+    CameraTargetSupplier,
+    TendCamera,
+    TendCameraNotFoundError,
+    TendCameraTarget,
+    TendStreamError,
+    VideoOffer,
+    parse_cameras,
+)
 from .tend_signaling import CxsConnection, request_video
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,8 +27,9 @@ _STOP_TIMEOUT = 1
 class TendSession:
     """A single camera connection; an empty frame signals that it ended."""
 
-    def __init__(self, on_frame: Callable[[bytes], None]) -> None:
+    def __init__(self, on_frame: Callable[[bytes], None], *, lan_only: bool = False) -> None:
         self._on_frame = on_frame
+        self._lan_only = lan_only
         self._connection = CxsConnection(self._on_lost)
         self._camera: TendCamera | None = None
         self._offer: VideoOffer | None = None
@@ -30,14 +39,27 @@ class TendSession:
 
     @classmethod
     async def open(
-        cls, target: TendCameraTarget, token: str, on_frame: Callable[[bytes], None]
+        cls,
+        target: TendCameraTarget,
+        token: str,
+        on_frame: Callable[[bytes], None],
+        *,
+        lan_only: bool = False,
+        fallback_target_supplier: CameraTargetSupplier | None = None,
     ) -> TendSession:
         """Connect to the requested camera, releasing failed attempts."""
-        session = cls(on_frame)
+        session = cls(on_frame, lan_only=lan_only)
         ready = False
         try:
             await session._connection.login(token)
-            session._camera = target.select(parse_cameras(session._connection.properties))
+            cameras = parse_cameras(session._connection.properties)
+            try:
+                session._camera = target.select(cameras)
+            except TendCameraNotFoundError:
+                if fallback_target_supplier is None:
+                    raise
+                fallback = await fallback_target_supplier()
+                session._camera = fallback.select(cameras)
             await session._start()
             if session.ended:
                 raise TendStreamError("Tend signaling closed during camera setup")
@@ -52,7 +74,9 @@ class TendSession:
         assert camera is not None
         for attempt in range(2):
             self._offer = await request_video(self._connection, camera)
-            self._transport = VideoTransport(camera, self._offer, self._on_frame)
+            self._transport = VideoTransport(
+                camera, self._offer, self._on_frame, lan_only=self._lan_only
+            )
             try:
                 await self._transport.punch(_PUNCH_TIMEOUT)
             except TendStreamError:

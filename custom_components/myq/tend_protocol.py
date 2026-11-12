@@ -8,6 +8,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import struct
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -22,6 +23,10 @@ _PROPERTY_SPACE = " \t\f"
 
 class TendStreamError(Exception):
     """A TC camera stream could not be opened or read."""
+
+
+class TendCameraNotFoundError(TendStreamError):
+    """No camera in the signaling reply matches the requested identity."""
 
 
 @dataclass(slots=True)
@@ -147,10 +152,17 @@ class TendCameraTarget:
         else:
             matches = [camera for camera in cameras if camera.opener_serial == self.opener_serial]
         if not matches:
-            raise TendStreamError("TC camera was not listed by Tend signaling")
+            with_opener = sum(1 for camera in cameras if camera.opener_serial)
+            raise TendCameraNotFoundError(
+                "TC camera was not listed by Tend signaling "
+                f"({len(cameras)} listed, {with_opener} with an opener)"
+            )
         if len(matches) != 1:
             raise TendStreamError("TC camera identity is ambiguous in Tend signaling")
         return matches[0]
+
+
+type CameraTargetSupplier = Callable[[], Awaitable[TendCameraTarget]]
 
 
 def parse_cameras(properties: dict[str, str]) -> list[TendCamera]:

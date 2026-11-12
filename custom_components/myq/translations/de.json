@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "Das Standbild der MyQ-Kamera konnte nicht abgerufen werden."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Übertragung von Kameravideos",
+        "description": "Das Livebild muss von der privaten IP-Adresse der Kamera im lokalen Netzwerk kommen. Für die Autorisierung und den Verbindungsaufbau wird weiterhin die Cloud benötigt. Ist die Kamera im lokalen Netzwerk nicht erreichbar, schlägt die Wiedergabe fehl, ohne eine öffentliche Adresse zu verwenden. Eine Änderung dieser Einstellung beendet aktive Kameraverbindungen. Standbilder werden weiterhin aus der Cloud abgerufen.",
+        "data": {
+          "camera_lan_only": "Livevideo nur über das lokale Netzwerk zulassen"
+        }
+      }
+    }
   }
 }

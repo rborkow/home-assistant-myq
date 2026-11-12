@@ -13,7 +13,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.myq.camera import MyQCameraEntity
+from custom_components.myq.camera import SNAPSHOT_FRAME_INTERVAL, MyQCameraEntity
 from custom_components.myq.const import (
     CONF_EMAIL,
     CONF_MFA_METHOD,
@@ -58,9 +58,13 @@ async def test_live_stream_is_available_only_for_tc_camera() -> None:
         )
         assert await tc_entity.stream_source() == "http://127.0.0.1:1234/test.h264"
         stream_class.assert_called_once_with(
-            tc_entity._async_stream_target, coordinator.client.async_access_token
+            tc_entity._async_stream_target,
+            coordinator.client.async_access_token,
+            lan_only=False,
+            fallback_target_supplier=tc_entity._async_camera_target,
         )
         assert (await tc_entity._async_stream_target()).opener_serial == "door-1"
+        coordinator.client.async_get_camera_alias.assert_not_called()
 
     other = replace(DOOR, camera=MyQCamera("GW-0005-10000001", True))
     other_entity, _ = _entity(other)
@@ -105,7 +109,36 @@ async def test_concurrent_snapshot_requests_share_one_capture() -> None:
     assert [await first, await second] == [IMAGE, IMAGE]
     coordinator.client.async_get_camera_image.assert_awaited_once()
     assert await entity.async_camera_image() == IMAGE
-    assert coordinator.client.async_get_camera_image.await_count == 2
+    coordinator.client.async_get_camera_image.assert_awaited_once()
+
+
+async def test_snapshot_viewers_share_one_capture_per_frame_interval() -> None:
+    entity, coordinator = _entity(DOOR)
+    with patch("custom_components.myq.camera.time.monotonic", return_value=100) as clock:
+        assert await entity.async_camera_image() == IMAGE
+        clock.return_value = 100 + SNAPSHOT_FRAME_INTERVAL - 0.1
+        assert await entity.async_camera_image() == IMAGE
+        coordinator.client.async_get_camera_image.assert_awaited_once()
+
+        clock.return_value = 100 + SNAPSHOT_FRAME_INTERVAL
+        coordinator.client.async_get_camera_image.return_value = IMAGE + b"new"
+        assert await entity.async_camera_image() == IMAGE + b"new"
+        assert coordinator.client.async_get_camera_image.await_count == 2
+
+
+async def test_expired_snapshot_does_not_hide_a_capture_failure() -> None:
+    entity, coordinator = _entity(DOOR)
+    with patch("custom_components.myq.camera.time.monotonic", return_value=100) as clock:
+        assert await entity.async_camera_image() == IMAGE
+        clock.return_value = 100 + SNAPSHOT_FRAME_INTERVAL
+        coordinator.client.async_get_camera_image.side_effect = MyQApiError("Snapshot unavailable")
+        with pytest.raises(HomeAssistantError):
+            await entity.async_camera_image()
+
+        coordinator.client.async_get_camera_image.side_effect = None
+        coordinator.client.async_get_camera_image.return_value = IMAGE + b"recovered"
+        assert await entity.async_camera_image() == IMAGE + b"recovered"
+        assert coordinator.client.async_get_camera_image.await_count == 3
 
 
 @pytest.mark.parametrize("error_type", [MyQApiError, MyQAuthenticationError, ClientConnectionError])
@@ -222,7 +255,43 @@ async def test_setup_adds_camera_only_for_doors_with_cameras(hass: HomeAssistant
 
 def _entity(door: GarageDoor) -> tuple[MyQCameraEntity, MagicMock]:
     coordinator = MagicMock()
+    coordinator.config_entry = None
     coordinator.data = {door.serial_number: door}
     coordinator.client.async_get_camera_image = AsyncMock(return_value=IMAGE)
     assert door.camera is not None
     return MyQCameraEntity(coordinator, door.camera, door=door), coordinator
+
+
+async def test_camera_passes_lan_only_option_to_shared_stream() -> None:
+    entity, coordinator = _entity(DOOR)
+    coordinator.config_entry = MockConfigEntry(domain=DOMAIN, options={"camera_lan_only": True})
+    with patch("custom_components.myq.camera.TendLiveStream") as factory:
+        factory.return_value.source_url = AsyncMock(return_value="http://127.0.0.1/video")
+        await entity.stream_source()
+        factory.assert_called_once_with(
+            entity._async_stream_target,
+            coordinator.client.async_access_token,
+            lan_only=True,
+            fallback_target_supplier=entity._async_camera_target,
+        )
+
+
+async def test_camera_alias_lookup_has_a_short_deadline() -> None:
+    entity, coordinator = _entity(DOOR)
+    cancelled = asyncio.Event()
+
+    async def slow_alias(camera: MyQCamera) -> str:
+        try:
+            await asyncio.Event().wait()
+            return "account:mac1"
+        finally:
+            cancelled.set()
+
+    coordinator.client.async_get_camera_alias = AsyncMock(side_effect=slow_alias)
+    with (
+        patch("custom_components.myq.camera._CAMERA_ALIAS_TIMEOUT", 0.01),
+        pytest.raises(TimeoutError),
+    ):
+        await asyncio.wait_for(entity._async_camera_target(), 1)
+    assert cancelled.is_set()
+    coordinator.client.async_get_camera_alias.assert_awaited_once_with(DOOR.camera)

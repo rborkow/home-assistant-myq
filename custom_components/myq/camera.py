@@ -10,7 +10,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import CONF_CAMERA_LAN_ONLY, DOMAIN
 from .coordinator import MyQDataUpdateCoordinator
 from .entity import myq_device_info
 from .exceptions import MyQApiError, MyQError
@@ -19,7 +19,8 @@ from .runtime import MyQConfigEntry
 from .tend_protocol import TendCameraTarget
 from .tend_stream import TendLiveStream
 
-SNAPSHOT_FRAME_INTERVAL = 5.0
+SNAPSHOT_FRAME_INTERVAL = 30.0
+_CAMERA_ALIAS_TIMEOUT = 5
 
 
 async def async_setup_entry(
@@ -112,9 +113,11 @@ class MyQCameraEntity(CoordinatorEntity[MyQDataUpdateCoordinator], Camera):
         camera = self.camera
         if camera is None:
             return None
-        requested_at = time.monotonic()
         async with self._capture_lock:
-            if self._image is not None and self._captured_at > requested_at:
+            if (
+                self._image is not None
+                and time.monotonic() - self._captured_at < SNAPSHOT_FRAME_INTERVAL
+            ):
                 return self._image
             try:
                 self._image = await self.coordinator.client.async_get_camera_image(camera)
@@ -132,19 +135,32 @@ class MyQCameraEntity(CoordinatorEntity[MyQDataUpdateCoordinator], Camera):
             return None
         if self._live_stream is None:
             self._live_stream = TendLiveStream(
-                self._async_stream_target, self.coordinator.client.async_access_token
+                self._async_stream_target,
+                self.coordinator.client.async_access_token,
+                fallback_target_supplier=(
+                    self._async_camera_target if self._opener_serial is not None else None
+                ),
+                lan_only=bool(
+                    self.coordinator.config_entry.options.get(CONF_CAMERA_LAN_ONLY, False)
+                )
+                if self.coordinator.config_entry
+                else False,
             )
         return await self._live_stream.source_url()
 
     async def _async_stream_target(self) -> TendCameraTarget:
         if self._opener_serial is not None:
             return TendCameraTarget(opener_serial=self._opener_serial)
+        return await self._async_camera_target()
+
+    async def _async_camera_target(self) -> TendCameraTarget:
+        """Resolve the current camera's exact destination within a bounded wait."""
         camera = self.camera
         if camera is None:
             raise MyQApiError("Camera is no longer available")
-        return TendCameraTarget(
-            destination=await self.coordinator.client.async_get_camera_alias(camera)
-        )
+        async with asyncio.timeout(_CAMERA_ALIAS_TIMEOUT):
+            destination = await self.coordinator.client.async_get_camera_alias(camera)
+        return TendCameraTarget(destination=destination)
 
     async def async_will_remove_from_hass(self) -> None:
         """Close the source before waiting for the stream reader to stop."""

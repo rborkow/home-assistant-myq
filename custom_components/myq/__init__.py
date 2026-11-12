@@ -9,7 +9,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .client import MyQClient
-from .const import CONF_TOKENS, DOMAIN
+from .const import CONF_CAMERA_LAN_ONLY, CONF_TOKENS, DOMAIN
 from .coordinator import MyQDataUpdateCoordinator
 from .exceptions import MyQApiError, MyQAuthenticationError
 from .models import OAuthTokens
@@ -67,6 +67,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyQConfigEntry) -> bool:
             translation_key="api_error",
         ) from error
 
+    current_lan_only = entry.options.get(CONF_CAMERA_LAN_ONLY, False)
+
+    async def camera_policy_changed(hass: HomeAssistant, updated: MyQConfigEntry) -> None:
+        # Data-only updates (including OAuth refresh) must not interrupt live video.
+        nonlocal current_lan_only
+        policy = updated.options.get(CONF_CAMERA_LAN_ONLY, False)
+        if policy != current_lan_only:
+            current_lan_only = policy
+            await hass.config_entries.async_reload(updated.entry_id)
+
+    entry.async_on_unload(entry.add_update_listener(camera_policy_changed))
     entry.runtime_data = MyQRuntimeData(client=client, coordinator=coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

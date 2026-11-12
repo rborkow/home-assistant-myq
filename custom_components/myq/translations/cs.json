@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "Snímek z kamery MyQ se nepodařilo načíst."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Přenos videa z kamery",
+        "description": "Vyžaduje příjem živého videa ze soukromé IP adresy kamery v místní síti. Ověření přístupu a navázání spojení stále probíhají přes cloud. Pokud kamera není v místní síti dostupná, přehrávání selže a veřejná adresa se nepoužije. Změna této volby ukončí aktivní spojení s kamerou. Snímky z kamery se nadále načítají z cloudu.",
+        "data": {
+          "camera_lan_only": "Přijímat živé video pouze z místní sítě"
+        }
+      }
+    }
   }
 }

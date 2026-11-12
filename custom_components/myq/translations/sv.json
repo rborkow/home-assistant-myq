@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "Det gick inte att hämta en stillbild från MyQ-kameran."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Överföring av kameravideo",
+        "description": "Kräv att direktsänd video kommer från kamerans privata IP-adress i det lokala nätverket. Auktorisering och upprättande av anslutningen kräver fortfarande åtkomst till molnet. Om kameran inte kan nås i det lokala nätverket misslyckas uppspelningen utan att någon publik adress används. Om du ändrar inställningen stängs aktiva kamerasessioner. Stillbilder hämtas fortfarande från molnet.",
+        "data": {
+          "camera_lan_only": "Tillåt direktsänd video endast via det lokala nätverket"
+        }
+      }
+    }
   }
 }

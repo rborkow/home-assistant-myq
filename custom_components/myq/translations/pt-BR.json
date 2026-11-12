@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "Não foi possível obter uma imagem da câmera MyQ."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Transmissão de vídeo da câmera",
+        "description": "Exige que o vídeo ao vivo venha do endereço IP privado da câmera na rede local. A autorização e o estabelecimento da conexão ainda exigem acesso à nuvem. Se a câmera não estiver acessível pela rede local, a reprodução falhará sem usar um endereço público. Alterar esta opção encerra as sessões ativas da câmera. As imagens estáticas continuam sendo obtidas da nuvem.",
+        "data": {
+          "camera_lan_only": "Usar apenas a rede local para o vídeo ao vivo"
+        }
+      }
+    }
   }
 }

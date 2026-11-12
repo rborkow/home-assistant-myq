@@ -22,7 +22,7 @@ from custom_components.myq.const import (
 )
 from custom_components.myq.models import GarageDoor, MyQCamera, MyQDevices
 from custom_components.myq.runtime import MyQRuntimeData
-from custom_components.myq.tend_protocol import TendCameraTarget
+from custom_components.myq.tend_protocol import CameraTargetSupplier, TendCameraTarget
 
 FIRST = MyQCamera("TC-0007-20000001", True, "vkp-camera", "Front entrance")
 SECOND = MyQCamera("TC-0007-20000002", True, "vkp-camera", "Side entrance")
@@ -150,6 +150,7 @@ async def test_two_live_streams_keep_distinct_camera_targets(socket_enabled: Non
 
     del socket_enabled
     coordinator = MagicMock()
+    coordinator.config_entry = None
     coordinator.data = {}
     coordinator.cameras = {camera.serial_number: camera for camera in (FIRST, SECOND)}
     coordinator.client.async_get_camera_alias = AsyncMock(
@@ -160,8 +161,15 @@ async def test_two_live_streams_keep_distinct_camera_targets(socket_enabled: Non
     sessions: list[MagicMock] = []
 
     async def open_session(
-        target: TendCameraTarget, token: str, on_frame: Callable[[bytes], None]
+        target: TendCameraTarget,
+        token: str,
+        on_frame: Callable[[bytes], None],
+        *,
+        lan_only: bool,
+        fallback_target_supplier: CameraTargetSupplier | None,
     ) -> MagicMock:
+        assert fallback_target_supplier is None
+        assert not lan_only
         assert token == "token"
         assert target.destination is not None
         callbacks[target.destination] = on_frame

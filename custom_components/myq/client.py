@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable, Mapping
+from time import monotonic
 from typing import cast
 
 from aiohttp import ClientSession
 
 from .const import (
+    ACCOUNT_DISCOVERY_INTERVAL,
     ACCOUNTS_BASE_URL,
     APP_VERSION,
     BRAND_ID,
@@ -21,6 +23,7 @@ from .const import (
 from .exceptions import MyQApiError, MyQAuthenticationError
 from .models import GarageDoor, MyQAccount, MyQCamera, MyQDevices
 from .oauth import MyQAuth
+from .request_limits import RequestCooldown
 
 type HeadersFn = Callable[[str], dict[str, str]]
 
@@ -29,12 +32,30 @@ class MyQClient:
     def __init__(self, session: ClientSession, auth: MyQAuth) -> None:
         self._session = session
         self._auth = auth
+        self._accounts: tuple[MyQAccount, ...] | None = None
+        self._accounts_updated_at = 0.0
+        self._accounts_lock = asyncio.Lock()
+        self._request_cooldown = RequestCooldown()
 
     async def async_access_token(self) -> str:
         """Return the current OAuth token for Tend camera signaling."""
         return await self._auth.async_access_token()
 
     async def async_get_accounts(self) -> tuple[MyQAccount, ...]:
+        """Refresh account membership less frequently than device state."""
+        async with self._accounts_lock:
+            if (
+                self._accounts is not None
+                and monotonic() - self._accounts_updated_at
+                < ACCOUNT_DISCOVERY_INTERVAL.total_seconds()
+            ):
+                return self._accounts
+            accounts = await self._async_fetch_accounts()
+            self._accounts = accounts
+            self._accounts_updated_at = monotonic()
+            return accounts
+
+    async def _async_fetch_accounts(self) -> tuple[MyQAccount, ...]:
         payload = await self._async_request_json(
             "GET",
             f"{ACCOUNTS_BASE_URL}/api/v6.0/accounts",
@@ -166,13 +187,16 @@ class MyQClient:
         url: str,
         headers: HeadersFn | None = None,
     ) -> bytes:
+        self._request_cooldown.check(url)
         access_token = await self._auth.async_access_token()
+        self._request_cooldown.check(url)
         async with self._session.request(
             method,
             url,
             headers=(headers or _api_headers)(access_token),
         ) as response:
             body = await response.read()
+            self._request_cooldown.check_response(url, response.status, response.headers)
             if response.status in {401, 403}:
                 raise MyQAuthenticationError(f"MyQ returned HTTP {response.status}")
             if response.status >= 400:

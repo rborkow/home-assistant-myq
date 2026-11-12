@@ -136,5 +136,16 @@
     "camera_image_failed": {
       "message": "Impossible de récupérer une image de la caméra MyQ."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Transmission vidéo de la caméra",
+        "description": "Exige que la vidéo en direct provienne de l’adresse IP privée de la caméra sur le réseau local. L’autorisation et l’établissement de la connexion nécessitent toujours un accès au cloud. Si la caméra est inaccessible sur le réseau local, la lecture échoue sans utiliser d’adresse publique. Modifier ce réglage ferme les sessions de caméra en cours. Les images fixes proviennent toujours du cloud.",
+        "data": {
+          "camera_lan_only": "Limiter la vidéo en direct au réseau local"
+        }
+      }
+    }
   }
 }

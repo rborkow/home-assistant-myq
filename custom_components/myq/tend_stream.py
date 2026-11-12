@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from aiohttp import ClientError, web
 
 from .exceptions import MyQError
-from .tend_protocol import TendCameraTarget, TendStreamError, _nals
+from .tend_protocol import CameraTargetSupplier, TendStreamError, _nals
 from .tend_session import TendSession
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,10 +42,15 @@ class TendLiveStream:
 
     def __init__(
         self,
-        target_supplier: Callable[[], Awaitable[TendCameraTarget]],
+        target_supplier: CameraTargetSupplier,
         token_supplier: Callable[[], Awaitable[str]],
+        *,
+        lan_only: bool = False,
+        fallback_target_supplier: CameraTargetSupplier | None = None,
     ) -> None:
         self._target_supplier = target_supplier
+        self._fallback_target_supplier = fallback_target_supplier
+        self._lan_only = lan_only
         self._token_supplier = token_supplier
         self._runner: web.AppRunner | None = None
         self._url: str | None = None
@@ -96,7 +101,11 @@ class TendLiveStream:
             if self._session is None or self._session.ended:
                 await self._close_session()
                 self._session = await TendSession.open(
-                    await self._target_supplier(), await self._token_supplier(), self._on_frame
+                    await self._target_supplier(),
+                    await self._token_supplier(),
+                    self._on_frame,
+                    lan_only=self._lan_only,
+                    fallback_target_supplier=self._fallback_target_supplier,
                 )
             viewer = _Viewer()
             self._viewers.add(viewer)
